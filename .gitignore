@@ -38,15 +38,26 @@ out/
 
 ### file
 sideworks.iml
-gitattributes
+.gitattributes
+setting.gradle
 frontend/dist
 frontend/node_modules
+frontend/package.json
+frontend/package-lock.json
 frontend/vite.config.js
 frontend/eslint.config.js
 
 # env
+src/main/resources/application.properties
+src/main/resources/application-local.properties
+src/main/resources/application-*.properties
 frontend/.env
 frontend/.env.*
+.env
+.env.*
+
+# local agent instructions
+AGENTS.md
 
 # logs
 npm-debug.log*
