@@ -1,16 +1,12 @@
 package com.example.sideworks.user.entity;
 
+import com.example.sideworks.common.entity.BaseTimeEntity;
 import com.example.sideworks.department.entity.Department;
 import com.example.sideworks.position.entity.Position;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.annotation.LastModifiedDate;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
-
-import java.time.LocalDateTime;
 
 @Entity
 @Table(
@@ -22,8 +18,7 @@ import java.time.LocalDateTime;
 )
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@EntityListeners(AuditingEntityListener.class)
-public class User {
+public class User extends BaseTimeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -59,14 +54,6 @@ public class User {
     @Enumerated(EnumType.STRING)
     @Column(name = "user_role", nullable = false, length = 50)
     private UserRole userRole;
-
-    @CreatedDate
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    @LastModifiedDate
-    @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 45)
