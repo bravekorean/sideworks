@@ -23,6 +23,7 @@ public class JwtTokenProvider {
     private final long accessTokenValidityMs;
     private final long refreshTokenValidityMs;
 
+    // JWT 설정값은 환경별 properties에서 주입받아 로컬/운영 설정을 분리한다.
     public JwtTokenProvider(
             @Value("${jwt.secret:}") String secret,
             @Value("${jwt.access-token-validity-ms:1800000}") long accessTokenValidityMs,
@@ -37,6 +38,7 @@ public class JwtTokenProvider {
         Date now = new Date();
         Date expiration = new Date(now.getTime() + accessTokenValidityMs);
 
+        // access token은 API 요청 인증에 사용하므로 사용자 식별값과 권한 정보를 함께 담는다.
         return Jwts.builder()
                 .subject(String.valueOf(userId))
                 .claim(CLAIM_USER_ID, userId)
@@ -52,6 +54,7 @@ public class JwtTokenProvider {
         Date now = new Date();
         Date expiration = new Date(now.getTime() + refreshTokenValidityMs);
 
+        // refresh token은 access token 재발급용이므로 최소한의 식별 정보만 담는다.
         return Jwts.builder()
                 .subject(String.valueOf(userId))
                 .claim(CLAIM_USER_ID, userId)
@@ -63,6 +66,7 @@ public class JwtTokenProvider {
 
     public boolean validateToken(String token) {
         try {
+            // 서명 검증과 만료 시간 검증을 통과하면 유효한 토큰으로 판단한다.
             parseClaims(token);
             return true;
         } catch (JwtException | IllegalArgumentException e) {
@@ -86,6 +90,7 @@ public class JwtTokenProvider {
     }
 
     private Claims parseClaims(String token) {
+        // secret key로 서명을 검증한 뒤 payload(claims)를 읽는다.
         return Jwts.parser()
                 .verifyWith(getSigningKey())
                 .build()
@@ -95,6 +100,7 @@ public class JwtTokenProvider {
 
     private SecretKey getSigningKey() {
         if (secret == null || secret.isBlank()) {
+            // secret이 비어 있으면 토큰을 안전하게 만들 수 없으므로 즉시 실패시킨다.
             throw new IllegalStateException("JWT secret is not configured.");
         }
 
