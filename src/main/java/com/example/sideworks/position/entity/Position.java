@@ -28,4 +28,18 @@ public class Position extends BaseTimeEntity {
 
     @Column(name = "position_order", nullable = false)
     private Integer positionOrder;
+
+
+    public static Position create(String positionName, Integer positionOrder) {
+        Position position = new Position();
+        position.positionName = positionName;
+        position.positionOrder = positionOrder;
+
+        return position;
+    }
+
+    public void update(String positionName, Integer positionOrder) {
+        this.positionName = positionName;
+        this.positionOrder = positionOrder;
+    }
 }

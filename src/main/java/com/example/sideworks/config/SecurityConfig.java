@@ -44,6 +44,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 로그인, 토큰 재발급 등 인증 진입점은 토큰 없이 접근 가능해야 한다.
                         .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/api/admin/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
                         // 그 외 API는 JwtAuthenticationFilter에서 인증된 요청만 접근하도록 제한한다.
                         .anyRequest().authenticated()
                 )

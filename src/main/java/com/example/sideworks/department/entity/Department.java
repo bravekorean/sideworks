@@ -26,4 +26,34 @@ public class Department extends BaseTimeEntity {
 
     @Column(name = "manager_user_id")
     private Long managerUserId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20)
+    private DepartmentStatus status;
+
+    public static Department create(String departmentName, Department parentDepartment) {
+        Department department = new Department();
+        department.departmentName = departmentName;
+        department.parentDepartment = parentDepartment;
+        department.status = DepartmentStatus.ACTIVE;
+
+        return department;
+    }
+
+    public void update(String departmentName, Department parentDepartment) {
+        this.departmentName = departmentName;
+        this.parentDepartment = parentDepartment;
+    }
+
+    public void delete() {
+        this.status = DepartmentStatus.DELETED;
+    }
+
+    public void assignManager(Long managerUserId) {
+        this.managerUserId = managerUserId;
+    }
+
+    public void removeManager() {
+        this.managerUserId = null;
+    }
 }

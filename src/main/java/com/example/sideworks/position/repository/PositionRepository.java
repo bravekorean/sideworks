@@ -9,4 +9,7 @@ public interface PositionRepository extends JpaRepository<Position, Long> {
 
     List<Position> findAllByOrderByPositionOrderAsc();
 
+    boolean existsByPositionName(String positionName);
+
+    boolean existsByPositionOrder(Integer positionOrder);
 }
