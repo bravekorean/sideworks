@@ -1,0 +1,18 @@
+package com.example.sideworks.user.dto;
+
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
+@Getter
+@NoArgsConstructor
+public class UserUpdateRequest {
+
+    private String userName;
+
+    private String userEmail;
+
+    private String userPhone;
+
+    private String employeeNo;
+
+}

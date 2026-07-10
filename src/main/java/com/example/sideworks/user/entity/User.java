@@ -44,11 +44,11 @@ public class User extends BaseTimeEntity {
     private String employeeNo;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "department_id", nullable = false)
+    @JoinColumn(name = "department_id")
     private Department department;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "position_id", nullable = false)
+    @JoinColumn(name = "position_id")
     private Position position;
 
     @Enumerated(EnumType.STRING)
@@ -58,4 +58,50 @@ public class User extends BaseTimeEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 45)
     private UserStatus status;
+
+
+    public void assignDepartment(Department department) {
+        this.department = department;
+    }
+
+    public void assignPosition(Position position) {
+        this.position = position;
+    }
+
+    public void changeStatus(UserStatus status) {
+        this.status = status;
+    }
+
+    public void changeRole(UserRole userRole) {
+        this.userRole = userRole;
+    }
+
+    public static User create(String loginId, String password, String userName, String userEmail, String userPhone, String employeeNo,
+                              Department department, Position position, UserRole userRole, UserStatus status) {
+
+        User user = new User();
+
+        user.loginId = loginId;
+        user.password = password;
+        user.userName = userName;
+        user.userEmail = userEmail;
+        user.userPhone = userPhone;
+        user.employeeNo = employeeNo;
+        user.department = department;
+        user.position = position;
+        user.userRole = userRole;
+        user.status = status;
+
+        return user;
+    }
+
+
+    public void updateBasicInfo(String userName, String userEmail, String userPhone, String employeeNo) {
+
+        this.userName = userName;
+        this.userEmail = userEmail;
+        this.userPhone = userPhone;
+        this.employeeNo = employeeNo;
+
+    }
 }
