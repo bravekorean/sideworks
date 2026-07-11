@@ -33,4 +33,12 @@ public class ApprovalCc extends BaseCreatedEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User ccUser;
+
+    public static ApprovalCc create(Approval approval, User ccUser) {
+        ApprovalCc approvalCc = new ApprovalCc();
+        approvalCc.approval = approval;
+        approvalCc.ccUser = ccUser;
+
+        return approvalCc;
+    }
 }

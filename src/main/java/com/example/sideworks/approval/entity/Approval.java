@@ -7,6 +7,8 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(name = "approvaltbl")
 @Getter
@@ -34,4 +36,37 @@ public class Approval extends BaseTimeEntity {
 
     @Column(name = "current_step")
     private Integer currentStep;
+
+    @Column(name = "submitted_at")
+    private LocalDateTime submittedAt;
+
+    @Column(name = "completed_at")
+    private LocalDateTime completedAt;
+
+    public static Approval createDraft(User writer, String title, String content) {
+        Approval approval = new Approval();
+        approval.writer = writer;
+        approval.title = title == null ? "" : title.trim();
+        approval.content = content == null ? "" : content;
+        approval.approvalStatus = ApprovalStatus.DRAFT;
+        approval.currentStep = null;
+
+        return approval;
+    }
+
+    public boolean isDraft() {
+        return approvalStatus == ApprovalStatus.DRAFT;
+    }
+
+    public void updateDraft(String title, String content) {
+        this.title = title == null ? "" : title.trim();
+        this.content = content == null ? "" : content;
+    }
+
+    public void submit(LocalDateTime submittedAt) {
+        this.approvalStatus = ApprovalStatus.IN_PROGRESS;
+        this.currentStep = 1;
+        this.submittedAt = submittedAt;
+        this.completedAt = null;
+    }
 }
