@@ -35,4 +35,15 @@ public class ApprovalHistory extends BaseCreatedEntity {
 
     @Column(name = "comment", columnDefinition = "TEXT")
     private String comment;
+
+    public static ApprovalHistory create(Approval approval, User actor, Integer actionStep, ApprovalActionType actionType, String comment) {
+        ApprovalHistory history = new ApprovalHistory();
+        history.approval = approval;
+        history.actor = actor;
+        history.actionStep = actionStep;
+        history.actionType = actionType;
+        history.comment = comment;
+
+        return history;
+    }
 }

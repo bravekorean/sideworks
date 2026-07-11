@@ -52,4 +52,14 @@ public class ApprovalLine extends BaseCreatedEntity {
 
     @Column(name = "processed_at")
     private LocalDateTime processedAt;
+
+    public static ApprovalLine create(Approval approval, User approver, Integer approvalStep, ApprovalLineStatus approvalStatus) {
+        ApprovalLine approvalLine = new ApprovalLine();
+        approvalLine.approval = approval;
+        approvalLine.approver = approver;
+        approvalLine.approvalStep = approvalStep;
+        approvalLine.approvalStatus = approvalStatus;
+
+        return approvalLine;
+    }
 }
