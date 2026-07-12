@@ -62,4 +62,44 @@ public class ApprovalLine extends BaseCreatedEntity {
 
         return approvalLine;
     }
+
+    public boolean isPending() {
+        return approvalStatus == ApprovalLineStatus.PENDING;
+    }
+
+    public boolean isApprover(Long userId) {
+        return approver.getUserId().equals(userId);
+    }
+
+    public void approve(String comment, LocalDateTime processedAt) {
+        validatePending();
+        this.approvalStatus = ApprovalLineStatus.APPROVED;
+        this.approvalComment = normalizeComment(comment);
+        this.processedAt = processedAt;
+    }
+
+    public void reject(String comment, LocalDateTime processedAt) {
+        validatePending();
+        this.approvalStatus = ApprovalLineStatus.REJECTED;
+        this.approvalComment = normalizeComment(comment);
+        this.processedAt = processedAt;
+    }
+
+    public void activate() {
+        if (approvalStatus != ApprovalLineStatus.WAITING) {
+            throw new IllegalStateException("대기 중인 결재선만 활성화할 수 있습니다.");
+        }
+
+        this.approvalStatus = ApprovalLineStatus.PENDING;
+    }
+
+    private void validatePending() {
+        if (!isPending()) {
+            throw new IllegalStateException("현재 처리할 수 있는 결재선이 아닙니다.");
+        }
+    }
+
+    private String normalizeComment(String comment) {
+        return comment == null || comment.isBlank() ? null : comment.trim();
+    }
 }

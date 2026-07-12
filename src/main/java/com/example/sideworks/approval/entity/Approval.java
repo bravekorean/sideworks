@@ -69,4 +69,41 @@ public class Approval extends BaseTimeEntity {
         this.submittedAt = submittedAt;
         this.completedAt = null;
     }
+
+    public boolean isInProgress() {
+        return approvalStatus == ApprovalStatus.IN_PROGRESS;
+    }
+
+    public void moveToNextStep(Integer nextStep) {
+        validateInProgress();
+        this.currentStep = nextStep;
+    }
+
+    public void complete(LocalDateTime completedAt) {
+        validateInProgress();
+        this.approvalStatus = ApprovalStatus.APPROVED;
+        this.completedAt = completedAt;
+    }
+
+    public void reject(LocalDateTime completedAt) {
+        validateInProgress();
+        this.approvalStatus = ApprovalStatus.REJECTED;
+        this.completedAt = completedAt;
+    }
+
+    public boolean isWriter(Long userId) {
+        return writer.getUserId().equals(userId);
+    }
+
+    public void cancel(LocalDateTime completedAt) {
+        validateInProgress();
+        this.approvalStatus = ApprovalStatus.CANCELED;
+        this.completedAt = completedAt;
+    }
+
+    private void validateInProgress() {
+        if (!isInProgress()) {
+            throw new IllegalStateException("진행 중인 결재 문서만 상태를 변경할 수 있습니다.");
+        }
+    }
 }

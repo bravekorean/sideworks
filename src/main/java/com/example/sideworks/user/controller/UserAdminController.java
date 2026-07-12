@@ -1,5 +1,6 @@
 package com.example.sideworks.user.controller;
 
+import com.example.sideworks.common.dto.PageResponse;
 import com.example.sideworks.user.dto.UserAssignmentRequest;
 import com.example.sideworks.user.dto.UserCreateRequest;
 import com.example.sideworks.user.dto.UserCreateResponse;
@@ -10,6 +11,9 @@ import com.example.sideworks.user.dto.UserSummaryResponse;
 import com.example.sideworks.user.dto.UserUpdateRequest;
 import com.example.sideworks.user.service.UserAdminService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,8 +24,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/admin/users")
@@ -30,10 +32,12 @@ public class UserAdminController {
     private final UserAdminService userAdminService;
 
     @GetMapping
-    public ResponseEntity<List<UserSummaryResponse>> findAllUsers() {
-        List<UserSummaryResponse> users = userAdminService.findAllUsers();
+    public ResponseEntity<PageResponse<UserSummaryResponse>> findAllUsers(
+            @PageableDefault(size = 20) Pageable pageable
+    ) {
+        Page<UserSummaryResponse> users = userAdminService.findAllUsers(pageable);
 
-        return ResponseEntity.ok(users);
+        return ResponseEntity.ok(PageResponse.from(users));
     }
 
     @PostMapping
@@ -57,10 +61,12 @@ public class UserAdminController {
     }
 
     @GetMapping("/unassigned")
-    public ResponseEntity<List<UserSummaryResponse>> findUnassignedUsers() {
-        List<UserSummaryResponse> users = userAdminService.findUnassignedUsers();
+    public ResponseEntity<PageResponse<UserSummaryResponse>> findUnassignedUsers(
+            @PageableDefault(size = 20) Pageable pageable
+    ) {
+        Page<UserSummaryResponse> users = userAdminService.findUnassignedUsers(pageable);
 
-        return ResponseEntity.ok(users);
+        return ResponseEntity.ok(PageResponse.from(users));
     }
 
     @PatchMapping("/{userId}/assignment")

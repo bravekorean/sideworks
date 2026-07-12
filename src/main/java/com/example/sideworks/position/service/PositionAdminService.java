@@ -3,11 +3,14 @@ package com.example.sideworks.position.service;
 import com.example.sideworks.common.exception.BusinessException;
 import com.example.sideworks.common.exception.ErrorCode;
 import com.example.sideworks.position.dto.PositionCreateRequest;
+import com.example.sideworks.position.dto.PositionResponse;
 import com.example.sideworks.position.dto.PositionUpdateRequest;
 import com.example.sideworks.position.entity.Position;
 import com.example.sideworks.position.repository.PositionRepository;
 import com.example.sideworks.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +21,12 @@ public class PositionAdminService {
 
     private final PositionRepository positionRepository;
     private final UserRepository userRepository;
+
+    public Page<PositionResponse> findAllPositions(Pageable pageable) {
+        return positionRepository
+                .findAllByOrderByPositionOrderAscPositionIdAsc(pageable)
+                .map(PositionResponse::from);
+    }
 
     @Transactional
     public Long createPosition(PositionCreateRequest request) {

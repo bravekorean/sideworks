@@ -2,6 +2,9 @@ package com.example.sideworks.department.repository;
 
 import com.example.sideworks.department.entity.Department;
 import com.example.sideworks.department.entity.DepartmentStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -13,7 +16,11 @@ public interface DepartmentRepository extends JpaRepository<Department, Long> {
 
     List<Department> findByParentDepartment_DepartmentIdAndStatus(Long departmentId, DepartmentStatus status);
 
-    List<Department> findAllByStatus(DepartmentStatus status);
+    @EntityGraph(attributePaths = "parentDepartment")
+    List<Department> findAllByStatusOrderByDepartmentNameAscDepartmentIdAsc(DepartmentStatus status);
+
+    @EntityGraph(attributePaths = "parentDepartment")
+    Page<Department> findAllByOrderByCreatedAtDescDepartmentIdDesc(Pageable pageable);
 
     Optional<Department> findByDepartmentIdAndStatus(Long departmentId, DepartmentStatus status);
 
