@@ -17,6 +17,12 @@ public enum ErrorCode {
     POSITION_NOT_FOUND(HttpStatus.NOT_FOUND, "POSITION_NOT_FOUND", "직급을 찾을 수 없습니다."),
     APPROVAL_NOT_FOUND(HttpStatus.NOT_FOUND, "APPROVAL_NOT_FOUND", "결재 문서를 찾을 수 없습니다."),
     APPROVAL_NOT_EDITABLE(HttpStatus.CONFLICT, "APPROVAL_NOT_EDITABLE", "임시저장 상태의 문서만 수정하거나 삭제할 수 있습니다."),
+    APPROVAL_NOT_IN_PROGRESS(HttpStatus.CONFLICT, "APPROVAL_NOT_IN_PROGRESS", "진행 중인 결재 문서만 처리할 수 있습니다."),
+    APPROVAL_DECISION_FORBIDDEN(HttpStatus.FORBIDDEN, "APPROVAL_DECISION_FORBIDDEN", "현재 결재자만 문서를 처리할 수 있습니다."),
+    APPROVAL_LINE_NOT_PROCESSABLE(HttpStatus.CONFLICT, "APPROVAL_LINE_NOT_PROCESSABLE", "현재 결재선을 처리할 수 없는 상태입니다."),
+    REJECTION_COMMENT_REQUIRED(HttpStatus.BAD_REQUEST, "REJECTION_COMMENT_REQUIRED", "반려 사유를 입력해야 합니다."),
+    APPROVAL_CANCEL_FORBIDDEN(HttpStatus.FORBIDDEN, "APPROVAL_CANCEL_FORBIDDEN", "작성자만 상신을 취소할 수 있습니다."),
+    APPROVAL_CANCEL_NOT_ALLOWED(HttpStatus.CONFLICT, "APPROVAL_CANCEL_NOT_ALLOWED", "이미 처리된 결재자가 있어 상신을 취소할 수 없습니다."),
     POSITION_IN_USE(HttpStatus.CONFLICT, "POSITION_IN_USE", "해당 직급을 사용하는 사용자가 있어 삭제할 수 없습니다."),
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", "서버 내부 오류가 발생했습니다.");
 

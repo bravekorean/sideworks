@@ -3,6 +3,7 @@ package com.example.sideworks.department.service;
 import com.example.sideworks.common.exception.BusinessException;
 import com.example.sideworks.common.exception.ErrorCode;
 import com.example.sideworks.department.dto.DepartmentCreateRequest;
+import com.example.sideworks.department.dto.DepartmentResponse;
 import com.example.sideworks.department.dto.DepartmentUpdateRequest;
 import com.example.sideworks.department.dto.DepartmentManagerUpdateRequest;
 import com.example.sideworks.department.entity.Department;
@@ -13,6 +14,8 @@ import com.example.sideworks.user.entity.UserStatus;
 import com.example.sideworks.department.repository.DepartmentRepository;
 import com.example.sideworks.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +26,12 @@ public class DepartmentAdminService {
 
     private final DepartmentRepository departmentRepository;
     private final UserRepository userRepository;
+
+    public Page<DepartmentResponse> findAllDepartments(Pageable pageable) {
+        return departmentRepository
+                .findAllByOrderByCreatedAtDescDepartmentIdDesc(pageable)
+                .map(DepartmentResponse::from);
+    }
 
     @Transactional
     public Long createDepartment(DepartmentCreateRequest request) {

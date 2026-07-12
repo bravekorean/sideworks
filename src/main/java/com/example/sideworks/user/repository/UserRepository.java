@@ -1,6 +1,9 @@
 package com.example.sideworks.user.repository;
 
 import com.example.sideworks.user.entity.User;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -18,9 +21,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     List<User> findAllByPositionIsNull();
 
-    List<User> findAllByDepartmentIsNullOrPositionIsNull();
+    @EntityGraph(attributePaths = {"department", "position"})
+    Page<User> findAllByDepartmentIsNullOrPositionIsNullOrderByCreatedAtDescUserIdDesc(Pageable pageable);
 
-    List<User> findAllByOrderByCreatedAtDesc();
+    @EntityGraph(attributePaths = {"department", "position"})
+    Page<User> findAllByOrderByCreatedAtDescUserIdDesc(Pageable pageable);
 
     boolean existsByDepartment_DepartmentId(Long departmentId);
 

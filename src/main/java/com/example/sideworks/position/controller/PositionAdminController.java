@@ -1,10 +1,15 @@
 package com.example.sideworks.position.controller;
 
+import com.example.sideworks.common.dto.PageResponse;
 import com.example.sideworks.position.dto.PositionCreateRequest;
 import com.example.sideworks.position.dto.PositionUpdateRequest;
 import com.example.sideworks.position.dto.PositionCreateResponse;
+import com.example.sideworks.position.dto.PositionResponse;
 import com.example.sideworks.position.service.PositionAdminService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -14,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 
 @RestController
 @RequiredArgsConstructor
@@ -21,6 +27,15 @@ import org.springframework.web.bind.annotation.PutMapping;
 public class PositionAdminController {
 
     private final PositionAdminService positionAdminService;
+
+    @GetMapping
+    public ResponseEntity<PageResponse<PositionResponse>> findAllPositions(
+            @PageableDefault(size = 20) Pageable pageable
+    ) {
+        Page<PositionResponse> positions = positionAdminService.findAllPositions(pageable);
+
+        return ResponseEntity.ok(PageResponse.from(positions));
+    }
 
     @PostMapping
     public ResponseEntity<PositionCreateResponse> createPosition(@RequestBody PositionCreateRequest request) {

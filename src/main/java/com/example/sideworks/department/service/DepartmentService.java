@@ -21,7 +21,7 @@ public class DepartmentService {
 
     public List<DepartmentResponse> findAllDepartments() {
         return departmentRepository
-                .findAllByStatus(DepartmentStatus.ACTIVE)
+                .findAllByStatusOrderByDepartmentNameAscDepartmentIdAsc(DepartmentStatus.ACTIVE)
                 .stream()
                 .map(DepartmentResponse::from)
                 .toList();

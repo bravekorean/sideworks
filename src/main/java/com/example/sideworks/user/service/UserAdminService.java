@@ -18,11 +18,11 @@ import com.example.sideworks.user.entity.UserRole;
 import com.example.sideworks.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
 
 @Slf4j
 @Service
@@ -39,11 +39,10 @@ public class UserAdminService {
     private final PasswordEncoder passwordEncoder;
 
     // 전체 사용자를 최신 생성일 기준으로 조회한다.
-    public List<UserSummaryResponse> findAllUsers() {
-        return userRepository.findAllByOrderByCreatedAtDesc()
-                .stream()
-                .map(UserSummaryResponse::from)
-                .toList();
+    public Page<UserSummaryResponse> findAllUsers(Pageable pageable) {
+        return userRepository
+                .findAllByOrderByCreatedAtDescUserIdDesc(pageable)
+                .map(UserSummaryResponse::from);
     }
 
     // 사용자 고유 ID로 상세 정보를 조회한다.
@@ -55,11 +54,10 @@ public class UserAdminService {
     }
 
     // 부서 또는 직급이 아직 배정되지 않은 사용자 목록을 조회한다.
-    public List<UserSummaryResponse> findUnassignedUsers() {
-        return userRepository.findAllByDepartmentIsNullOrPositionIsNull()
-                .stream()
-                .map(UserSummaryResponse::from)
-                .toList();
+    public Page<UserSummaryResponse> findUnassignedUsers(Pageable pageable) {
+        return userRepository
+                .findAllByDepartmentIsNullOrPositionIsNullOrderByCreatedAtDescUserIdDesc(pageable)
+                .map(UserSummaryResponse::from);
     }
 
     // 관리자가 신규 사용자를 생성한다. SUPER_ADMIN은 초기 DB 계정으로만 관리한다.
