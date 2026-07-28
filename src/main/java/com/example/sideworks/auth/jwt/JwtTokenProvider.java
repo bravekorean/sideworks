@@ -18,6 +18,9 @@ public class JwtTokenProvider {
     private static final String CLAIM_USER_ID = "userId";
     private static final String CLAIM_LOGIN_ID = "loginId";
     private static final String CLAIM_ROLE = "role";
+    private static final String CLAIM_TOKEN_TYPE = "tokenType";
+    private static final String ACCESS_TOKEN_TYPE = "ACCESS";
+    private static final String REFRESH_TOKEN_TYPE = "REFRESH";
 
     private final String secret;
     private final long accessTokenValidityMs;
@@ -44,6 +47,7 @@ public class JwtTokenProvider {
                 .claim(CLAIM_USER_ID, userId)
                 .claim(CLAIM_LOGIN_ID, loginId)
                 .claim(CLAIM_ROLE, userRole.name())
+                .claim(CLAIM_TOKEN_TYPE, ACCESS_TOKEN_TYPE)
                 .issuedAt(now)
                 .expiration(expiration)
                 .signWith(getSigningKey(), Jwts.SIG.HS256)
@@ -58,6 +62,7 @@ public class JwtTokenProvider {
         return Jwts.builder()
                 .subject(String.valueOf(userId))
                 .claim(CLAIM_USER_ID, userId)
+                .claim(CLAIM_TOKEN_TYPE, REFRESH_TOKEN_TYPE)
                 .issuedAt(now)
                 .expiration(expiration)
                 .signWith(getSigningKey(), Jwts.SIG.HS256)
@@ -77,6 +82,14 @@ public class JwtTokenProvider {
     public Long getUserId(String token) {
         Claims claims = parseClaims(token);
         return claims.get(CLAIM_USER_ID, Long.class);
+    }
+
+    public boolean validateRefreshToken(String token) {
+        if (!validateToken(token)) {
+            return false;
+        }
+
+        return REFRESH_TOKEN_TYPE.equals(parseClaims(token).get(CLAIM_TOKEN_TYPE, String.class));
     }
 
     public String getLoginId(String token) {

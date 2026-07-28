@@ -2,7 +2,10 @@ package com.example.sideworks.auth.service;
 
 import com.example.sideworks.auth.dto.LoginRequest;
 import com.example.sideworks.auth.dto.LoginResult;
+import com.example.sideworks.auth.dto.TokenRefreshResponse;
 import com.example.sideworks.auth.jwt.JwtTokenProvider;
+import com.example.sideworks.common.exception.BusinessException;
+import com.example.sideworks.common.exception.ErrorCode;
 import com.example.sideworks.user.entity.User;
 import com.example.sideworks.user.entity.UserRole;
 import com.example.sideworks.user.entity.UserStatus;
@@ -82,7 +85,9 @@ class AuthServiceTest {
 
         // when & then
         assertThatThrownBy(() -> authService.login(request))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INVALID_LOGIN);
     }
 
     @Test
@@ -102,7 +107,9 @@ class AuthServiceTest {
 
         // when & then
         assertThatThrownBy(() -> authService.login(request))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INVALID_LOGIN);
     }
 
     @Test
@@ -122,7 +129,38 @@ class AuthServiceTest {
 
         // when & then
         assertThatThrownBy(() -> authService.login(request))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INVALID_LOGIN);
+    }
+
+    @Test
+    void 유효한_refreshToken으로_accessToken을_재발급한다() {
+        User user = createUser(
+                1L,
+                "admin",
+                passwordEncoder.encode(RAW_PASSWORD),
+                "관리자",
+                UserRole.SUPER_ADMIN,
+                UserStatus.ACTIVE
+        );
+        String refreshToken = jwtTokenProvider.createRefreshToken(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+        TokenRefreshResponse response = authService.refreshAccessToken(refreshToken);
+
+        assertThat(response.getAccessToken()).isNotBlank();
+        assertThat(jwtTokenProvider.validateToken(response.getAccessToken())).isTrue();
+    }
+
+    @Test
+    void accessToken으로_재발급을_요청할_수_없다() {
+        String accessToken = jwtTokenProvider.createAccessToken(1L, "admin", UserRole.SUPER_ADMIN);
+
+        assertThatThrownBy(() -> authService.refreshAccessToken(accessToken))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INVALID_REFRESH_TOKEN);
     }
 
     private LoginRequest createLoginRequest(String loginId, String password) {

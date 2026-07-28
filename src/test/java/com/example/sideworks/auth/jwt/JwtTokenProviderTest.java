@@ -58,6 +58,14 @@ class JwtTokenProviderTest {
         // then
         assertThat(token).isNotBlank();
         assertThat(jwtTokenProvider.validateToken(token)).isTrue();
+        assertThat(jwtTokenProvider.validateRefreshToken(token)).isTrue();
         assertThat(jwtTokenProvider.getUserId(token)).isEqualTo(userId);
+    }
+
+    @Test
+    void accessToken은_refreshToken으로_사용할_수_없다() {
+        String accessToken = jwtTokenProvider.createAccessToken(1L, "admin", UserRole.SUPER_ADMIN);
+
+        assertThat(jwtTokenProvider.validateRefreshToken(accessToken)).isFalse();
     }
 }
