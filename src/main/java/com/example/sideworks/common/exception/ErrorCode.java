@@ -10,6 +10,11 @@ public enum ErrorCode {
     INVALID_CC_USER(HttpStatus.BAD_REQUEST, "INVALID_CC_USER", "참조자로 지정할 수 없는 사용자입니다."),
 
     INVALID_LOGIN(HttpStatus.UNAUTHORIZED, "INVALID_LOGIN", "아이디 또는 비밀번호가 올바르지 않습니다."),
+    INVALID_CURRENT_PASSWORD(HttpStatus.UNAUTHORIZED, "INVALID_CURRENT_PASSWORD", "현재 비밀번호가 올바르지 않습니다."),
+    INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "INVALID_REFRESH_TOKEN", "유효하지 않은 Refresh Token입니다."),
+    ACCOUNT_NOT_ACTIVE(HttpStatus.FORBIDDEN, "ACCOUNT_NOT_ACTIVE", "활성 상태의 계정만 사용할 수 있습니다."),
+    PASSWORD_POLICY_VIOLATION(HttpStatus.BAD_REQUEST, "PASSWORD_POLICY_VIOLATION", "새 비밀번호는 8자 이상 72자 이하로 입력해야 합니다."),
+    SAME_AS_CURRENT_PASSWORD(HttpStatus.BAD_REQUEST, "SAME_AS_CURRENT_PASSWORD", "현재 비밀번호와 다른 새 비밀번호를 입력해야 합니다."),
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "잘못된 요청입니다."),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다."),
     DEPARTMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "DEPARTMENT_NOT_FOUND", "부서를 찾을 수 없습니다."),

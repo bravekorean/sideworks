@@ -76,6 +76,19 @@ public class User extends BaseTimeEntity {
         this.userRole = userRole;
     }
 
+    public void updateContactInfo(String userEmail, String userPhone) {
+        this.userEmail = userEmail;
+        this.userPhone = userPhone;
+    }
+
+    public void withdraw() {
+        this.status = UserStatus.DELETED;
+    }
+
+    public void changePassword(String encodedPassword) {
+        this.password = encodedPassword;
+    }
+
     public static User create(String loginId, String password, String userName, String userEmail, String userPhone, String employeeNo,
                               Department department, Position position, UserRole userRole, UserStatus status) {
 

@@ -2,6 +2,7 @@ package com.example.sideworks.auth.controller;
 
 import com.example.sideworks.auth.dto.LoginResponse;
 import com.example.sideworks.auth.dto.LoginResult;
+import com.example.sideworks.auth.dto.TokenRefreshResponse;
 import com.example.sideworks.auth.jwt.JwtTokenProvider;
 import com.example.sideworks.auth.service.AuthService;
 import com.example.sideworks.user.entity.UserRole;
@@ -15,6 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -72,7 +74,11 @@ class AuthControllerTest {
     @Test
     void login_fail_returns_error_response() throws Exception {
         // given
-        when(authService.login(any())).thenThrow(new IllegalArgumentException("invalid login"));
+        when(authService.login(any())).thenThrow(
+                new com.example.sideworks.common.exception.BusinessException(
+                        com.example.sideworks.common.exception.ErrorCode.INVALID_LOGIN
+                )
+        );
 
         // when & then
         mockMvc.perform(post("/api/auth/login")
@@ -86,5 +92,28 @@ class AuthControllerTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_LOGIN"))
                 .andExpect(jsonPath("$.message").value("아이디 또는 비밀번호가 올바르지 않습니다."));
+    }
+
+    @Test
+    void refreshToken_쿠키로_accessToken을_재발급한다() throws Exception {
+        when(authService.refreshAccessToken("refresh-token"))
+                .thenReturn(new TokenRefreshResponse("new-access-token"));
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .cookie(new jakarta.servlet.http.Cookie("refreshToken", "refresh-token")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").value("new-access-token"));
+
+        verify(authService).refreshAccessToken("refresh-token");
+    }
+
+    @Test
+    void 로그아웃하면_refreshToken_쿠키를_즉시_만료한다() throws Exception {
+        mockMvc.perform(post("/api/auth/logout"))
+                .andExpect(status().isNoContent())
+                .andExpect(cookie().value("refreshToken", ""))
+                .andExpect(cookie().maxAge("refreshToken", 0))
+                .andExpect(cookie().httpOnly("refreshToken", true))
+                .andExpect(cookie().path("refreshToken", "/api/auth"));
     }
 }

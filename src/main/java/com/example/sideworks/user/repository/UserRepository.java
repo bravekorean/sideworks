@@ -27,6 +27,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @EntityGraph(attributePaths = {"department", "position"})
     Page<User> findAllByOrderByCreatedAtDescUserIdDesc(Pageable pageable);
 
+    @EntityGraph(attributePaths = {"department", "position"})
+    Optional<User> findProfileByLoginId(String loginId);
+
     boolean existsByDepartment_DepartmentId(Long departmentId);
 
     boolean existsByPosition_PositionId(Long positionId);
