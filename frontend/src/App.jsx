@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router'
 import AppShell from './components/AppShell'
+import ApprovalDetailPage from './pages/ApprovalDetailPage'
 import DashboardPage from './pages/DashboardPage'
 import PendingApprovalPage from './pages/PendingApprovalPage'
 import './App.css'
@@ -10,6 +11,7 @@ function App() {
       <Route element={<AppShell />}>
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/approvals/pending" element={<PendingApprovalPage />} />
+        <Route path="/approvals/:approvalId" element={<ApprovalDetailPage />} />
       </Route>
 
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

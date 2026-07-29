@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router'
 
 const pendingApprovals = [
   {
@@ -137,9 +138,12 @@ function PendingApprovalPage() {
                       {approval.documentNumber}
                     </td>
                     <td>
-                      <button className="approval-title-button" type="button">
+                      <Link
+                        className="approval-title-button"
+                        to={`/approvals/${approval.approvalId}`}
+                      >
                         {approval.title}
-                      </button>
+                      </Link>
                     </td>
                     <td>{approval.writerName}</td>
                     <td>{approval.documentType}</td>
