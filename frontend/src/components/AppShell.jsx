@@ -12,21 +12,21 @@ const navigationGroups = [
   {
     label: '전자결재',
     items: [
-      { id: 'new', label: '새 결재 작성', icon: 'edit' },
-      { id: 'drafts', label: '임시저장함', icon: 'file', count: 3 },
-      { id: 'sent', label: '내가 작성한 문서', icon: 'send' },
+      { id: 'new', label: '새 결재 작성', icon: 'edit', path: '/approvals/new' },
+      { id: 'drafts', label: '임시저장함', icon: 'file', count: 3, path: '/approvals/drafts' },
+      { id: 'sent', label: '내가 작성한 문서', icon: 'send', path: '/approvals/sent' },
       { id: 'pending', label: '결재 대기함', icon: 'inbox', count: 7, path: '/approvals/pending' },
-      { id: 'processed', label: '결재 처리함', icon: 'check' },
-      { id: 'cc', label: '참조 문서함', icon: 'eye', count: 2 },
+      { id: 'processed', label: '결재 처리함', icon: 'check', path: '/approvals/processed' },
+      { id: 'cc', label: '참조 문서함', icon: 'eye', count: 2, path: '/approvals/cc' },
     ],
   },
   {
     label: '관리',
     role: 'ADMIN',
     items: [
-      { id: 'users', label: '사용자 관리', icon: 'users' },
-      { id: 'departments', label: '부서 관리', icon: 'building' },
-      { id: 'positions', label: '직급 관리', icon: 'badge' },
+      { id: 'users', label: '사용자 관리', icon: 'users', path: '/admin/users' },
+      { id: 'departments', label: '부서 관리', icon: 'building', path: '/admin/departments' },
+      { id: 'positions', label: '직급 관리', icon: 'badge', path: '/admin/positions' },
     ],
   },
 ]
