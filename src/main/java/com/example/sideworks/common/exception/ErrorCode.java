@@ -17,6 +17,7 @@ public enum ErrorCode {
     SAME_AS_CURRENT_PASSWORD(HttpStatus.BAD_REQUEST, "SAME_AS_CURRENT_PASSWORD", "현재 비밀번호와 다른 새 비밀번호를 입력해야 합니다."),
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "잘못된 요청입니다."),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다."),
+    EMPLOYEE_NUMBER_EXHAUSTED(HttpStatus.CONFLICT, "EMPLOYEE_NUMBER_EXHAUSTED", "해당 직렬과 입사 연도의 사번 발급 한도를 초과했습니다."),
     DEPARTMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "DEPARTMENT_NOT_FOUND", "부서를 찾을 수 없습니다."),
     DEPARTMENT_IN_USE(HttpStatus.CONFLICT, "DEPARTMENT_IN_USE", "하위 부서 또는 소속 사용자가 있어 삭제할 수 없습니다."),
     POSITION_NOT_FOUND(HttpStatus.NOT_FOUND, "POSITION_NOT_FOUND", "직급을 찾을 수 없습니다."),

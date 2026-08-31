@@ -8,4 +8,6 @@ import lombok.Getter;
 public class UserCreateResponse {
 
     private Long userId;
+
+    private String employeeNo;
 }

@@ -1,18 +1,64 @@
-import { useMemo, useState } from 'react'
-
-const positions = [
-  { positionId: 1, positionName: '사원', positionOrder: 1, memberCount: 7 },
-  { positionId: 2, positionName: '대리', positionOrder: 2, memberCount: 4 },
-  { positionId: 3, positionName: '과장', positionOrder: 3, memberCount: 3 },
-  { positionId: 4, positionName: '팀장', positionOrder: 4, memberCount: 3 },
-  { positionId: 5, positionName: '본부장', positionOrder: 5, memberCount: 1 },
-]
+import { useEffect, useMemo, useState } from 'react'
+import {
+  createPosition,
+  deletePosition,
+  getAdminPositions,
+  updatePosition,
+} from '../api/adminApi'
 
 function PositionManagementPage() {
   const [searchQuery, setSearchQuery] = useState('')
+  const [positions, setPositions] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
   const [selectedPosition, setSelectedPosition] = useState(null)
   const [dialogMode, setDialogMode] = useState(null)
   const [feedback, setFeedback] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const loadPositions = async () => {
+    try {
+      setIsLoading(true)
+      const pageResponse = await getAdminPositions()
+      setPositions(pageResponse.content)
+    } catch (error) {
+      setFeedback(
+        error.response?.data?.message ?? '직급 목록을 불러오지 못했습니다.',
+      )
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    let isActive = true
+
+    const loadInitialPositions = async () => {
+      try {
+        const pageResponse = await getAdminPositions()
+
+        if (isActive) {
+          setPositions(pageResponse.content)
+        }
+      } catch (error) {
+        if (isActive) {
+          setFeedback(
+            error.response?.data?.message ??
+              '직급 목록을 불러오지 못했습니다.',
+          )
+        }
+      } finally {
+        if (isActive) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    loadInitialPositions()
+
+    return () => {
+      isActive = false
+    }
+  }, [])
 
   const filteredPositions = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase()
@@ -20,7 +66,7 @@ function PositionManagementPage() {
     return positions.filter((position) =>
       position.positionName.toLowerCase().includes(normalizedQuery),
     )
-  }, [searchQuery])
+  }, [positions, searchQuery])
 
   const openCreateDialog = () => {
     setSelectedPosition(null)
@@ -34,13 +80,52 @@ function PositionManagementPage() {
     setDialogMode('edit')
   }
 
-  const handleDialogSubmit = (event) => {
+  const handleDialogSubmit = async (event) => {
     event.preventDefault()
-    setFeedback(
-      dialogMode === 'create'
-        ? '입력 확인이 완료되었습니다. 실제 생성은 API 연결 후 처리됩니다.'
-        : '변경 내용 확인이 완료되었습니다. 실제 수정은 API 연결 후 처리됩니다.',
-    )
+    const formData = new FormData(event.currentTarget)
+    const positionName = formData.get('positionName').trim()
+    const positionOrder = Number(formData.get('positionOrder'))
+
+    try {
+      setIsSubmitting(true)
+      setFeedback('')
+
+      if (dialogMode === 'create') {
+        await createPosition(positionName, positionOrder)
+      } else {
+        await updatePosition(
+          selectedPosition.positionId,
+          positionName,
+          positionOrder,
+        )
+      }
+
+      setDialogMode(null)
+      await loadPositions()
+    } catch (error) {
+      setFeedback(
+        error.response?.data?.message ?? '직급 정보를 저장하지 못했습니다.',
+      )
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleDelete = async (position) => {
+    if (!window.confirm(`${position.positionName} 직급을 삭제할까요?`)) {
+      return
+    }
+
+    try {
+      setFeedback('')
+      await deletePosition(position.positionId)
+      await loadPositions()
+    } catch (error) {
+      setFeedback(
+        error.response?.data?.message ??
+          '사용 중인 직급은 삭제할 수 없습니다.',
+      )
+    }
   }
 
   return (
@@ -98,7 +183,11 @@ function PositionManagementPage() {
           <span>관리</span>
         </div>
 
+        {feedback && !dialogMode && (
+          <p className="create-user-feedback">{feedback}</p>
+        )}
         <div className="position-list">
+          {isLoading && <p className="compose-feedback">불러오는 중입니다.</p>}
           {filteredPositions.map((position, index) => (
             <article className="position-row" key={position.positionId}>
               <span className="position-order">{position.positionOrder}</span>
@@ -110,7 +199,7 @@ function PositionManagementPage() {
                 </div>
               </div>
               <span className="position-member-count">
-                {position.memberCount}명
+                -
               </span>
               <div className="position-order-actions">
                 <button
@@ -137,12 +226,7 @@ function PositionManagementPage() {
                 </button>
                 <button
                   className="danger-text-button"
-                  disabled={position.memberCount > 0}
-                  title={
-                    position.memberCount > 0
-                      ? '사용 중인 직급은 삭제할 수 없습니다.'
-                      : undefined
-                  }
+                  onClick={() => handleDelete(position)}
                   type="button"
                 >
                   삭제
@@ -189,6 +273,7 @@ function PositionManagementPage() {
                 <span>직급명</span>
                 <input
                   defaultValue={selectedPosition?.positionName ?? ''}
+                  name="positionName"
                   placeholder="직급명을 입력하세요."
                   required
                 />
@@ -198,6 +283,7 @@ function PositionManagementPage() {
                 <input
                   defaultValue={selectedPosition?.positionOrder ?? ''}
                   min="1"
+                  name="positionOrder"
                   placeholder="1"
                   required
                   type="number"
@@ -213,8 +299,16 @@ function PositionManagementPage() {
               <button onClick={() => setDialogMode(null)} type="button">
                 취소
               </button>
-              <button className="dialog-confirm" type="submit">
-                {dialogMode === 'create' ? '생성하기' : '저장하기'}
+              <button
+                className="dialog-confirm"
+                disabled={isSubmitting}
+                type="submit"
+              >
+                {isSubmitting
+                  ? '저장 중...'
+                  : dialogMode === 'create'
+                    ? '생성하기'
+                    : '저장하기'}
               </button>
             </footer>
           </form>

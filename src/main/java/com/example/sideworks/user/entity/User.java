@@ -8,6 +8,8 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
+
 @Entity
 @Table(
         name = "usertbl",
@@ -42,6 +44,13 @@ public class User extends BaseTimeEntity {
 
     @Column(name = "employee_no", nullable = false, length = 100)
     private String employeeNo;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "job_family", length = 20)
+    private JobFamily jobFamily;
+
+    @Column(name = "hire_date")
+    private LocalDate hireDate;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "department_id")
@@ -90,6 +99,7 @@ public class User extends BaseTimeEntity {
     }
 
     public static User create(String loginId, String password, String userName, String userEmail, String userPhone, String employeeNo,
+                              JobFamily jobFamily, LocalDate hireDate,
                               Department department, Position position, UserRole userRole, UserStatus status) {
 
         User user = new User();
@@ -100,6 +110,8 @@ public class User extends BaseTimeEntity {
         user.userEmail = userEmail;
         user.userPhone = userPhone;
         user.employeeNo = employeeNo;
+        user.jobFamily = jobFamily;
+        user.hireDate = hireDate;
         user.department = department;
         user.position = position;
         user.userRole = userRole;
@@ -109,12 +121,10 @@ public class User extends BaseTimeEntity {
     }
 
 
-    public void updateBasicInfo(String userName, String userEmail, String userPhone, String employeeNo) {
+    public void updateBasicInfo(String userName, String userEmail, String userPhone) {
 
         this.userName = userName;
         this.userEmail = userEmail;
         this.userPhone = userPhone;
-        this.employeeNo = employeeNo;
-
     }
 }

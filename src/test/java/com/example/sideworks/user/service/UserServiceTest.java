@@ -142,6 +142,8 @@ class UserServiceTest {
                 "EMP001",
                 null,
                 null,
+                null,
+                null,
                 UserRole.USER,
                 UserStatus.ACTIVE
         );

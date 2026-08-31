@@ -1,12 +1,14 @@
 package com.example.sideworks.approval.repository;
 
 import com.example.sideworks.approval.dto.ApprovalCcResponse;
+import com.example.sideworks.approval.dto.ApprovalActivityResponse;
 import com.example.sideworks.approval.dto.ApprovalDetailHeaderResponse;
 import com.example.sideworks.approval.dto.ApprovalHistoryResponse;
 import com.example.sideworks.approval.dto.ApprovalLineResponse;
 import com.example.sideworks.approval.dto.ApprovalListResponse;
 import com.example.sideworks.approval.entity.ApprovalLineStatus;
 import com.example.sideworks.approval.entity.ApprovalStatus;
+import com.example.sideworks.user.entity.QUser;
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.ConstructorExpression;
 import com.querydsl.core.types.Projections;
@@ -31,14 +33,15 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
     private final JPAQueryFactory queryFactory;
 
     @Override
-    public Page<ApprovalListResponse> findDraftsByWriterId(Long writerId, Pageable pageable) {
+    public Page<ApprovalListResponse> findDraftsByWriterId(Long writerId, String keyword, Pageable pageable) {
         List<ApprovalListResponse> content = queryFactory
                 .select(approvalListProjection())
                 .from(approval)
                 .join(approval.writer)
                 .where(
                         approval.writer.userId.eq(writerId),
-                        approval.approvalStatus.eq(ApprovalStatus.DRAFT)
+                        approval.approvalStatus.eq(ApprovalStatus.DRAFT),
+                        containsKeyword(keyword)
                 )
                 .orderBy(approval.createdAt.desc(),
                          approval.approvalId.desc())
@@ -49,9 +52,11 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
         Long total = queryFactory
                 .select(approval.count())
                 .from(approval)
+                .join(approval.writer)
                 .where(
                         approval.writer.userId.eq(writerId),
-                        approval.approvalStatus.eq(ApprovalStatus.DRAFT)
+                        approval.approvalStatus.eq(ApprovalStatus.DRAFT),
+                        containsKeyword(keyword)
                 )
                 .fetchOne();
 
@@ -59,14 +64,16 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
     }
 
     @Override
-    public Page<ApprovalListResponse> findSentByWriterId(Long writerId, Pageable pageable) {
+    public Page<ApprovalListResponse> findSentByWriterId(Long writerId, String keyword, ApprovalStatus status, Pageable pageable) {
         List<ApprovalListResponse> content = queryFactory
                 .select(approvalListProjection())
                 .from(approval)
                 .join(approval.writer)
                 .where(
                         approval.writer.userId.eq(writerId),
-                        approval.approvalStatus.ne(ApprovalStatus.DRAFT)
+                        approval.approvalStatus.ne(ApprovalStatus.DRAFT),
+                        containsKeyword(keyword),
+                        hasStatus(status)
                 )
                 .orderBy(
                         approval.submittedAt.desc(),
@@ -79,9 +86,12 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
         Long total = queryFactory
                 .select(approval.count())
                 .from(approval)
+                .join(approval.writer)
                 .where(
                         approval.writer.userId.eq(writerId),
-                        approval.approvalStatus.ne(ApprovalStatus.DRAFT)
+                        approval.approvalStatus.ne(ApprovalStatus.DRAFT),
+                        containsKeyword(keyword),
+                        hasStatus(status)
                 )
                 .fetchOne();
 
@@ -89,7 +99,7 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
     }
 
     @Override
-    public Page<ApprovalListResponse> findPendingByApproverId(Long approverId, Pageable pageable) {
+    public Page<ApprovalListResponse> findPendingByApproverId(Long approverId, String keyword, Pageable pageable) {
         List<ApprovalListResponse> content = queryFactory
                 .select(approvalListProjection())
                 .from(approvalLine)
@@ -97,7 +107,9 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
                 .join(approval.writer)
                 .where(
                         approvalLine.approver.userId.eq(approverId),
-                        approvalLine.approvalStatus.eq(ApprovalLineStatus.PENDING)
+                        approvalLine.approvalStatus.eq(ApprovalLineStatus.PENDING),
+                        approval.approvalStatus.eq(ApprovalStatus.IN_PROGRESS),
+                        containsKeyword(keyword)
                 )
                 .orderBy(
                         approval.createdAt.desc(),
@@ -110,9 +122,13 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
         Long total = queryFactory
                 .select(approvalLine.count())
                 .from(approvalLine)
+                .join(approvalLine.approval, approval)
+                .join(approval.writer)
                 .where(
                         approvalLine.approver.userId.eq(approverId),
-                        approvalLine.approvalStatus.eq(ApprovalLineStatus.PENDING)
+                        approvalLine.approvalStatus.eq(ApprovalLineStatus.PENDING),
+                        approval.approvalStatus.eq(ApprovalStatus.IN_PROGRESS),
+                        containsKeyword(keyword)
                 )
                 .fetchOne();
 
@@ -120,7 +136,7 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
     }
 
     @Override
-    public Page<ApprovalListResponse> findProcessedByApproverId(Long approverId, Pageable pageable) {
+    public Page<ApprovalListResponse> findProcessedByApproverId(Long approverId, String keyword, ApprovalStatus status, Pageable pageable) {
         List<ApprovalListResponse> content = queryFactory
                 .select(approvalListProjection())
                 .from(approvalLine)
@@ -131,7 +147,9 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
                         approvalLine.approvalStatus.in(
                                 ApprovalLineStatus.APPROVED,
                                 ApprovalLineStatus.REJECTED
-                        )
+                        ),
+                        containsKeyword(keyword),
+                        hasStatus(status)
                 )
                 .orderBy(
                         approvalLine.processedAt.desc(),
@@ -144,12 +162,16 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
         Long total = queryFactory
                 .select(approvalLine.count())
                 .from(approvalLine)
+                .join(approvalLine.approval, approval)
+                .join(approval.writer)
                 .where(
                         approvalLine.approver.userId.eq(approverId),
                         approvalLine.approvalStatus.in(
                                 ApprovalLineStatus.APPROVED,
                                 ApprovalLineStatus.REJECTED
-                        )
+                        ),
+                        containsKeyword(keyword),
+                        hasStatus(status)
                 )
                 .fetchOne();
 
@@ -157,13 +179,17 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
     }
 
     @Override
-    public Page<ApprovalListResponse> findCcByUserId(Long userId, Pageable pageable) {
+    public Page<ApprovalListResponse> findCcByUserId(Long userId, String keyword, ApprovalStatus status, Pageable pageable) {
         List<ApprovalListResponse> content = queryFactory
                 .select(approvalListProjection())
                 .from(approvalCc)
                 .join(approvalCc.approval, approval)
                 .join(approval.writer)
-                .where(approvalCc.ccUser.userId.eq(userId))
+                .where(
+                        approvalCc.ccUser.userId.eq(userId),
+                        containsKeyword(keyword),
+                        hasStatus(status)
+                )
                 .orderBy(
                         approval.createdAt.desc(),
                         approvalCc.approvalCcId.desc()
@@ -175,7 +201,85 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
         Long total = queryFactory
                 .select(approvalCc.count())
                 .from(approvalCc)
-                .where(approvalCc.ccUser.userId.eq(userId))
+                .join(approvalCc.approval, approval)
+                .join(approval.writer)
+                .where(
+                        approvalCc.ccUser.userId.eq(userId),
+                        containsKeyword(keyword),
+                        hasStatus(status)
+                )
+                .fetchOne();
+
+        return toPage(content, pageable, total);
+    }
+
+    @Override
+    public Page<ApprovalActivityResponse> findRecentActivitiesByUserId(Long userId, Pageable pageable) {
+        List<ApprovalActivityResponse> content = queryFactory
+                .select(Projections.constructor(
+                        ApprovalActivityResponse.class,
+                        approvalHistory.approvalHistoryId,
+                        approval.approvalId,
+                        approval.title,
+                        approvalHistory.actor.userId,
+                        approvalHistory.actor.userName,
+                        approvalHistory.actionStep,
+                        approvalHistory.actionType,
+                        approvalHistory.createdAt
+                ))
+                .from(approvalHistory)
+                .join(approvalHistory.approval, approval)
+                .join(approvalHistory.actor)
+                .where(accessibleByUser(userId))
+                .orderBy(
+                        approvalHistory.createdAt.desc(),
+                        approvalHistory.approvalHistoryId.desc()
+                )
+                .offset(pageable.getOffset())
+                .limit(pageable.getPageSize())
+                .fetch();
+
+        Long total = queryFactory
+                .select(approvalHistory.count())
+                .from(approvalHistory)
+                .join(approvalHistory.approval, approval)
+                .where(accessibleByUser(userId))
+                .fetchOne();
+
+        return toPage(content, pageable, total);
+    }
+
+    @Override
+    public Page<ApprovalListResponse> searchApprovals(
+            Long userId,
+            boolean searchAll,
+            String keyword,
+            Pageable pageable
+    ) {
+        List<ApprovalListResponse> content = queryFactory
+                .select(approvalListProjection())
+                .from(approval)
+                .join(approval.writer)
+                .where(
+                        searchAll ? null : accessibleByUser(userId),
+                        matchesGlobalSearch(keyword)
+                )
+                .orderBy(
+                        approval.createdAt.desc(),
+                        approval.approvalId.desc()
+                )
+                .offset(pageable.getOffset())
+                .limit(pageable.getPageSize())
+                .fetch();
+
+        Long total = queryFactory
+                .select(approval.count())
+                .from(approval)
+                .join(approval.writer)
+                .where(
+                        searchAll ? null : accessibleByUser(userId),
+                        matchesGlobalSearch(keyword)
+                )
                 .fetchOne();
 
         return toPage(content, pageable, total);
@@ -299,6 +403,77 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
                         approval.approvalStatus.ne(ApprovalStatus.DRAFT)
                                 .and(isApprover.or(isCcUser))
                 );
+    }
+
+    private BooleanExpression accessibleByUser(Long userId) {
+        BooleanExpression isApprover = JPAExpressions
+                .selectOne()
+                .from(approvalLine)
+                .where(
+                        approvalLine.approval.approvalId.eq(approval.approvalId),
+                        approvalLine.approver.userId.eq(userId)
+                )
+                .exists();
+
+        BooleanExpression isCcUser = JPAExpressions
+                .selectOne()
+                .from(approvalCc)
+                .where(
+                        approvalCc.approval.approvalId.eq(approval.approvalId),
+                        approvalCc.ccUser.userId.eq(userId)
+                )
+                .exists();
+
+        return approval.writer.userId.eq(userId)
+                .or(
+                        approval.approvalStatus.ne(ApprovalStatus.DRAFT)
+                                .and(isApprover.or(isCcUser))
+                );
+    }
+
+    private BooleanExpression containsKeyword(String keyword) {
+        if (keyword == null || keyword.isBlank()) {
+            return null;
+        }
+
+        String normalizedKeyword = keyword.trim();
+        return approval.title.containsIgnoreCase(normalizedKeyword)
+                .or(approval.writer.userName.containsIgnoreCase(normalizedKeyword));
+    }
+
+    private BooleanExpression matchesGlobalSearch(String keyword) {
+        String normalizedKeyword = keyword.trim();
+        BooleanExpression matchesApprover = JPAExpressions
+                .selectOne()
+                .from(approvalLine)
+                .where(
+                        approvalLine.approval.approvalId.eq(approval.approvalId),
+                        matchesUser(approvalLine.approver, normalizedKeyword)
+                )
+                .exists();
+        BooleanExpression matchesCcUser = JPAExpressions
+                .selectOne()
+                .from(approvalCc)
+                .where(
+                        approvalCc.approval.approvalId.eq(approval.approvalId),
+                        matchesUser(approvalCc.ccUser, normalizedKeyword)
+                )
+                .exists();
+
+        return approval.title.containsIgnoreCase(normalizedKeyword)
+                .or(matchesUser(approval.writer, normalizedKeyword))
+                .or(matchesApprover)
+                .or(matchesCcUser);
+    }
+
+    private BooleanExpression matchesUser(QUser user, String keyword) {
+        return user.userName.containsIgnoreCase(keyword)
+                .or(user.loginId.containsIgnoreCase(keyword))
+                .or(user.employeeNo.containsIgnoreCase(keyword));
+    }
+
+    private BooleanExpression hasStatus(ApprovalStatus status) {
+        return status == null ? null : approval.approvalStatus.eq(status);
     }
 
     private ConstructorExpression<ApprovalListResponse> approvalListProjection() {

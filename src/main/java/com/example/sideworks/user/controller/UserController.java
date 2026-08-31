@@ -1,11 +1,12 @@
 package com.example.sideworks.user.controller;
 
-import com.example.sideworks.user.dto.MyProfileResponse;
-import com.example.sideworks.user.dto.MyProfileUpdateRequest;
-import com.example.sideworks.user.dto.AccountWithdrawalRequest;
-import com.example.sideworks.user.dto.PasswordChangeRequest;
+import com.example.sideworks.common.dto.PageResponse;
+import com.example.sideworks.user.dto.*;
 import com.example.sideworks.user.service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,31 +31,30 @@ public class UserController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/directory")
+    public ResponseEntity<PageResponse<UserDirectoryResponse>> findDirectoryUsers(Authentication authentication, @PageableDefault(size = 20) Pageable pageable) {
+        Page<UserDirectoryResponse> users = userService.findDirectoryUsers(authentication.getName(), pageable);
+
+        return ResponseEntity.ok(PageResponse.from(users));
+    }
+
+
     @PatchMapping("/mypage")
-    public ResponseEntity<Void> updateMyProfile(
-            Authentication authentication,
-            @RequestBody MyProfileUpdateRequest request
-    ) {
+    public ResponseEntity<Void> updateMyProfile(Authentication authentication, @RequestBody MyProfileUpdateRequest request) {
         userService.updateMyProfile(authentication.getName(), request);
 
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/mypage")
-    public ResponseEntity<Void> withdrawMyAccount(
-            Authentication authentication,
-            @RequestBody AccountWithdrawalRequest request
-    ) {
+    public ResponseEntity<Void> withdrawMyAccount(Authentication authentication, @RequestBody AccountWithdrawalRequest request) {
         userService.withdrawMyAccount(authentication.getName(), request);
 
         return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/mypage/password")
-    public ResponseEntity<Void> changeMyPassword(
-            Authentication authentication,
-            @RequestBody PasswordChangeRequest request
-    ) {
+    public ResponseEntity<Void> changeMyPassword(Authentication authentication, @RequestBody PasswordChangeRequest request) {
         userService.changeMyPassword(authentication.getName(), request);
 
         return ResponseEntity.noContent().build();

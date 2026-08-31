@@ -13,6 +13,4 @@ public class UserUpdateRequest {
 
     private String userPhone;
 
-    private String employeeNo;
-
 }

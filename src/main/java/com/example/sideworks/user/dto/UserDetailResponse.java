@@ -1,12 +1,14 @@
 package com.example.sideworks.user.dto;
 
 import com.example.sideworks.user.entity.User;
+import com.example.sideworks.user.entity.JobFamily;
 import com.example.sideworks.user.entity.UserRole;
 import com.example.sideworks.user.entity.UserStatus;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 
 @Getter
 @AllArgsConstructor
@@ -23,6 +25,10 @@ public class UserDetailResponse {
     private String userPhone;
 
     private String employeeNo;
+
+    private JobFamily jobFamily;
+
+    private LocalDate hireDate;
 
     private Long departmentId;
 
@@ -48,6 +54,8 @@ public class UserDetailResponse {
                 user.getUserEmail(),
                 user.getUserPhone(),
                 user.getEmployeeNo(),
+                user.getJobFamily(),
+                user.getHireDate(),
                 user.getDepartment() == null ? null : user.getDepartment().getDepartmentId(),
                 user.getDepartment() == null ? null : user.getDepartment().getDepartmentName(),
                 user.getPosition() == null ? null : user.getPosition().getPositionId(),

@@ -1,6 +1,7 @@
 package com.example.sideworks.approval.service;
 
 import com.example.sideworks.approval.dto.ApprovalCcResponse;
+import com.example.sideworks.approval.dto.ApprovalActivityResponse;
 import com.example.sideworks.approval.dto.ApprovalDetailHeaderResponse;
 import com.example.sideworks.approval.dto.ApprovalDetailResponse;
 import com.example.sideworks.approval.dto.ApprovalDecisionRequest;
@@ -14,6 +15,7 @@ import com.example.sideworks.approval.entity.ApprovalActionType;
 import com.example.sideworks.approval.entity.ApprovalCc;
 import com.example.sideworks.approval.entity.ApprovalHistory;
 import com.example.sideworks.approval.entity.ApprovalLine;
+import com.example.sideworks.approval.entity.ApprovalStatus;
 import com.example.sideworks.approval.factory.ApprovalSubmissionFactory;
 import com.example.sideworks.approval.repository.ApprovalCcRepository;
 import com.example.sideworks.approval.repository.ApprovalHistoryRepository;
@@ -159,34 +161,60 @@ public class ApprovalService {
         ));
     }
 
-    public Page<ApprovalListResponse> getDraftApprovals(String loginId, Pageable pageable) {
+    public Page<ApprovalListResponse> getDraftApprovals(String loginId, String keyword, Pageable pageable) {
         User writer = findUserByLoginId(loginId);
 
-        return approvalRepository.findDraftsByWriterId(writer.getUserId(), pageable);
+        return approvalRepository.findDraftsByWriterId(writer.getUserId(), keyword, pageable);
     }
 
-    public Page<ApprovalListResponse> getSentApprovals(String loginId, Pageable pageable) {
+    public Page<ApprovalListResponse> getSentApprovals(String loginId, String keyword, ApprovalStatus status, Pageable pageable) {
         User writer = findUserByLoginId(loginId);
 
-        return approvalRepository.findSentByWriterId(writer.getUserId(), pageable);
+        return approvalRepository.findSentByWriterId(writer.getUserId(), keyword, status, pageable);
     }
 
-    public Page<ApprovalListResponse> getPendingApprovals(String loginId, Pageable pageable) {
+    public Page<ApprovalListResponse> getPendingApprovals(String loginId, String keyword, Pageable pageable) {
         User approver = findUserByLoginId(loginId);
 
-        return approvalRepository.findPendingByApproverId(approver.getUserId(), pageable);
+        return approvalRepository.findPendingByApproverId(approver.getUserId(), keyword, pageable);
     }
 
-    public Page<ApprovalListResponse> getProcessedApprovals(String loginId, Pageable pageable) {
+    public Page<ApprovalListResponse> getProcessedApprovals(String loginId, String keyword, ApprovalStatus status, Pageable pageable) {
         User approver = findUserByLoginId(loginId);
 
-        return approvalRepository.findProcessedByApproverId(approver.getUserId(), pageable);
+        return approvalRepository.findProcessedByApproverId(approver.getUserId(), keyword, status, pageable);
     }
 
-    public Page<ApprovalListResponse> getCcApprovals(String loginId, Pageable pageable) {
+    public Page<ApprovalListResponse> getCcApprovals(String loginId, String keyword, ApprovalStatus status, Pageable pageable) {
         User ccUser = findUserByLoginId(loginId);
 
-        return approvalRepository.findCcByUserId(ccUser.getUserId(), pageable);
+        return approvalRepository.findCcByUserId(ccUser.getUserId(), keyword, status, pageable);
+    }
+
+    public Page<ApprovalActivityResponse> getRecentActivities(String loginId, Pageable pageable) {
+        User user = findUserByLoginId(loginId);
+
+        return approvalRepository.findRecentActivitiesByUserId(user.getUserId(), pageable);
+    }
+
+    public Page<ApprovalListResponse> searchApprovals(
+            String loginId,
+            String keyword,
+            Pageable pageable
+    ) {
+        if (keyword == null || keyword.isBlank()) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        }
+
+        User user = findUserByLoginId(loginId);
+        boolean searchAll = user.getUserRole() == UserRole.SUPER_ADMIN;
+
+        return approvalRepository.searchApprovals(
+                user.getUserId(),
+                searchAll,
+                keyword.trim(),
+                pageable
+        );
     }
 
     public ApprovalDetailResponse getApprovalDetail(Long approvalId, String loginId) {
