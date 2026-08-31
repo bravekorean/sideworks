@@ -1,7 +1,18 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
+import { getApprovalBox } from '../api/approvalApi'
 
 const PAGE_SIZE = 5
+
+const emptyPage = {
+  content: [],
+  page: 0,
+  size: PAGE_SIZE,
+  totalElements: 0,
+  totalPages: 0,
+  first: true,
+  last: true,
+}
 
 const statusLabels = {
   DRAFT: '임시저장',
@@ -21,8 +32,28 @@ const statusClassNames = {
   PENDING: 'pending',
 }
 
+function formatDateTime(value) {
+  if (!value) {
+    return '-'
+  }
+
+  return value.replace('T', ' ').slice(0, 16)
+}
+
+function getDisplayDate(approval, box) {
+  if (box === 'drafts') {
+    return formatDateTime(approval.createdAt)
+  }
+
+  return formatDateTime(approval.submittedAt ?? approval.createdAt)
+}
+
+function getDisplayStatus(approval, box) {
+  return box === 'pending' ? 'PENDING' : approval.approvalStatus
+}
+
 function ApprovalListPage({
-  approvals,
+  box,
   dateLabel,
   description,
   emptyMessage,
@@ -30,48 +61,78 @@ function ApprovalListPage({
   statusOptions,
   title,
 }) {
+  const [pageResponse, setPageResponse] = useState(emptyPage)
+  const [currentPage, setCurrentPage] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
+  const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
-  const [currentPage, setCurrentPage] = useState(1)
+  const [isListLoading, setIsListLoading] = useState(true)
+  const [listLoadError, setListLoadError] = useState('')
 
-  const filteredApprovals = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase()
+  useEffect(() => {
+    const debounceTimer = window.setTimeout(() => {
+      setKeyword(searchQuery.trim())
+      setCurrentPage(0)
+    }, 300)
 
-    return approvals.filter((approval) => {
-      const matchesSearch = [
-        approval.documentNumber,
-        approval.title,
-        approval.writerName,
-        approval.documentType,
-      ].some((value) => value.toLowerCase().includes(normalizedQuery))
+    return () => {
+      window.clearTimeout(debounceTimer)
+    }
+  }, [searchQuery])
 
-      const matchesStatus =
-        statusFilter === 'ALL' || approval.status === statusFilter
+  useEffect(() => {
+    let isActive = true
 
-      return matchesSearch && matchesStatus
-    })
-  }, [approvals, searchQuery, statusFilter])
+    const loadApprovals = async () => {
+      try {
+        setIsListLoading(true)
+        setListLoadError('')
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredApprovals.length / PAGE_SIZE),
-  )
-  const safeCurrentPage = Math.min(currentPage, totalPages)
-  const pageStartIndex = (safeCurrentPage - 1) * PAGE_SIZE
-  const visibleApprovals = filteredApprovals.slice(
-    pageStartIndex,
-    pageStartIndex + PAGE_SIZE,
-  )
+        const response = await getApprovalBox(box, {
+          page: currentPage,
+          size: PAGE_SIZE,
+          keyword,
+          status: statusFilter === 'ALL' ? '' : statusFilter,
+        })
 
-  const handleSearchChange = (event) => {
-    setSearchQuery(event.target.value)
-    setCurrentPage(1)
-  }
+        if (isActive) {
+          setPageResponse(response)
+        }
+      } catch (error) {
+        if (isActive) {
+          setPageResponse(emptyPage)
+          setListLoadError(
+            error.response?.data?.message ??
+              '결재 문서 목록을 불러오지 못했습니다.',
+          )
+        }
+      } finally {
+        if (isActive) {
+          setIsListLoading(false)
+        }
+      }
+    }
+
+    loadApprovals()
+
+    return () => {
+      isActive = false
+    }
+  }, [box, currentPage, keyword, statusFilter])
 
   const handleStatusChange = (event) => {
     setStatusFilter(event.target.value)
-    setCurrentPage(1)
+    setCurrentPage(0)
   }
+
+  const rangeStart =
+    pageResponse.totalElements === 0
+      ? 0
+      : pageResponse.page * pageResponse.size + 1
+  const rangeEnd = Math.min(
+    (pageResponse.page + 1) * pageResponse.size,
+    pageResponse.totalElements,
+  )
 
   return (
     <div className="approval-page">
@@ -82,7 +143,7 @@ function ApprovalListPage({
           <p>{description}</p>
         </div>
         <span className="approval-result-count">
-          총 <strong>{filteredApprovals.length}</strong>건
+          총 <strong>{pageResponse.totalElements}</strong>건
         </span>
       </header>
 
@@ -91,24 +152,26 @@ function ApprovalListPage({
           <label className="approval-search">
             <span aria-hidden="true">⌕</span>
             <input
-              onChange={handleSearchChange}
-              placeholder="문서번호, 제목, 작성자 검색"
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="제목, 작성자 검색"
               type="search"
               value={searchQuery}
             />
           </label>
 
-          <label className="approval-status-filter">
-            <span>상태</span>
-            <select onChange={handleStatusChange} value={statusFilter}>
-              <option value="ALL">전체</option>
-              {statusOptions.map((status) => (
-                <option key={status} value={status}>
-                  {statusLabels[status]}
-                </option>
-              ))}
-            </select>
-          </label>
+          {statusOptions.length > 0 && (
+            <label className="approval-status-filter">
+              <span>상태</span>
+              <select onChange={handleStatusChange} value={statusFilter}>
+                <option value="ALL">전체</option>
+                {statusOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {statusLabels[status]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
 
         <div className="approval-table-wrapper">
@@ -118,55 +181,76 @@ function ApprovalListPage({
                 <th>문서번호</th>
                 <th>제목</th>
                 <th>작성자</th>
-                <th>문서 종류</th>
                 <th>결재 단계</th>
                 <th>{dateLabel}</th>
                 <th>상태</th>
               </tr>
             </thead>
             <tbody>
-              {visibleApprovals.length > 0 ? (
-                visibleApprovals.map((approval) => (
-                  <tr key={`${approval.box}-${approval.approvalId}`}>
-                    <td className="approval-document-number">
-                      {approval.documentNumber}
-                    </td>
-                    <td>
-                      {approval.detailAvailable ? (
+              {isListLoading ? (
+                <tr>
+                  <td className="approval-empty-state" colSpan={6}>
+                    <strong>결재 문서를 불러오는 중입니다.</strong>
+                  </td>
+                </tr>
+              ) : listLoadError ? (
+                <tr>
+                  <td className="approval-empty-state" colSpan={6}>
+                    <strong>{listLoadError}</strong>
+                    <span>잠시 후 다시 시도해 주세요.</span>
+                  </td>
+                </tr>
+              ) : pageResponse.content.length > 0 ? (
+                pageResponse.content.map((approval) => {
+                  const displayStatus = getDisplayStatus(approval, box)
+
+                  return (
+                    <tr key={`${box}-${approval.approvalId}`}>
+                      <td className="approval-document-number">
+                        {displayStatus === 'DRAFT'
+                          ? `DRAFT-${approval.approvalId}`
+                          : `AP-${approval.approvalId}`}
+                      </td>
+                      <td>
                         <Link
                           className="approval-title-button"
-                          to={`/approvals/${approval.approvalId}`}
+                          state={{
+                            from: `/approvals/${box}`,
+                            fromLabel: title,
+                          }}
+                          to={
+                            displayStatus === 'DRAFT'
+                              ? `/approvals/${approval.approvalId}/edit`
+                              : `/approvals/${approval.approvalId}`
+                          }
                         >
                           {approval.title}
                         </Link>
-                      ) : (
-                        <span className="approval-title-text">
-                          {approval.title}
+                      </td>
+                      <td>{approval.writerName}</td>
+                      <td>
+                        {approval.currentStep === null
+                          ? '미상신'
+                          : `${approval.currentStep}단계`}
+                      </td>
+                      <td>{getDisplayDate(approval, box)}</td>
+                      <td>
+                        <span
+                          className={`status-chip status-chip--${statusClassNames[displayStatus]}`}
+                        >
+                          {statusLabels[displayStatus] ?? displayStatus}
                         </span>
-                      )}
-                    </td>
-                    <td>{approval.writerName}</td>
-                    <td>{approval.documentType}</td>
-                    <td>
-                      {approval.currentStep === null
-                        ? '미상신'
-                        : `${approval.currentStep} / ${approval.totalSteps}`}
-                    </td>
-                    <td>{approval.displayDate}</td>
-                    <td>
-                      <span
-                        className={`status-chip status-chip--${statusClassNames[approval.status]}`}
-                      >
-                        {statusLabels[approval.status]}
-                      </span>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                    </tr>
+                  )
+                })
               ) : (
                 <tr>
-                  <td className="approval-empty-state" colSpan={7}>
+                  <td className="approval-empty-state" colSpan={6}>
                     <strong>{emptyMessage}</strong>
-                    <span>검색어나 상태 조건을 변경해 보세요.</span>
+                    {(keyword || statusFilter !== 'ALL') && (
+                      <span>검색어나 상태 조건을 변경해 보세요.</span>
+                    )}
                   </td>
                 </tr>
               )}
@@ -176,47 +260,41 @@ function ApprovalListPage({
 
         <footer className="approval-pagination">
           <span>
-            {filteredApprovals.length > 0
-              ? `${pageStartIndex + 1}-${Math.min(
-                  pageStartIndex + PAGE_SIZE,
-                  filteredApprovals.length,
-                )} / ${filteredApprovals.length}`
-              : '0 / 0'}
+            {rangeStart}-{rangeEnd} / {pageResponse.totalElements}
           </span>
 
           <div className="pagination-buttons">
             <button
-              disabled={safeCurrentPage === 1}
+              disabled={pageResponse.first || isListLoading}
               onClick={() => setCurrentPage((page) => page - 1)}
               type="button"
             >
               이전
             </button>
 
-            {Array.from({ length: totalPages }, (_, index) => {
-              const pageNumber = index + 1
-
-              return (
-                <button
-                  aria-current={
-                    safeCurrentPage === pageNumber ? 'page' : undefined
-                  }
-                  className={
-                    safeCurrentPage === pageNumber
-                      ? 'pagination-button--active'
-                      : ''
-                  }
-                  key={pageNumber}
-                  onClick={() => setCurrentPage(pageNumber)}
-                  type="button"
-                >
-                  {pageNumber}
-                </button>
-              )
-            })}
+            {Array.from(
+              { length: pageResponse.totalPages },
+              (_, index) => index,
+            ).map((pageNumber) => (
+              <button
+                aria-current={
+                  currentPage === pageNumber ? 'page' : undefined
+                }
+                className={
+                  currentPage === pageNumber
+                    ? 'pagination-button--active'
+                    : ''
+                }
+                key={pageNumber}
+                onClick={() => setCurrentPage(pageNumber)}
+                type="button"
+              >
+                {pageNumber + 1}
+              </button>
+            ))}
 
             <button
-              disabled={safeCurrentPage === totalPages}
+              disabled={pageResponse.last || isListLoading}
               onClick={() => setCurrentPage((page) => page + 1)}
               type="button"
             >

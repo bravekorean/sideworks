@@ -8,6 +8,7 @@ import com.example.sideworks.position.entity.Position;
 import com.example.sideworks.position.repository.PositionRepository;
 import com.example.sideworks.user.dto.UserAssignmentRequest;
 import com.example.sideworks.user.dto.UserCreateRequest;
+import com.example.sideworks.user.dto.UserCreateResponse;
 import com.example.sideworks.user.dto.UserDetailResponse;
 import com.example.sideworks.user.dto.UserRoleUpdateRequest;
 import com.example.sideworks.user.dto.UserStatusUpdateRequest;
@@ -38,6 +39,8 @@ public class UserAdminService {
 
     private final PasswordEncoder passwordEncoder;
 
+    private final EmployeeNumberGenerator employeeNumberGenerator;
+
     // 전체 사용자를 최신 생성일 기준으로 조회한다.
     public Page<UserSummaryResponse> findAllUsers(Pageable pageable) {
         return userRepository
@@ -62,13 +65,13 @@ public class UserAdminService {
 
     // 관리자가 신규 사용자를 생성한다. SUPER_ADMIN은 초기 DB 계정으로만 관리한다.
     @Transactional
-    public Long createUser(UserCreateRequest request) {
+    public UserCreateResponse createUser(UserCreateRequest request) {
 
         if (userRepository.existsByLoginId(request.getLoginId())) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
 
-        if (userRepository.existsByEmployeeNo(request.getEmployeeNo())) {
+        if (request.getJobFamily() == null || request.getHireDate() == null) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
 
@@ -89,6 +92,10 @@ public class UserAdminService {
         }
 
         String encodedPassword = passwordEncoder.encode(request.getPassword());
+        String employeeNo = employeeNumberGenerator.generate(
+                request.getJobFamily(),
+                request.getHireDate()
+        );
 
         User user = User.create(
                 request.getLoginId(),
@@ -96,7 +103,9 @@ public class UserAdminService {
                 request.getUserName(),
                 request.getUserEmail(),
                 request.getUserPhone(),
-                request.getEmployeeNo(),
+                employeeNo,
+                request.getJobFamily(),
+                request.getHireDate(),
                 department,
                 position,
                 request.getUserRole(),
@@ -105,9 +114,9 @@ public class UserAdminService {
 
         Long userId = userRepository.save(user).getUserId();
 
-        log.info("Admin user created. userId={}, loginId={}, employeeNo={}, role={}, status={}", userId, request.getLoginId(), request.getEmployeeNo(), request.getUserRole(), request.getStatus());
+        log.info("Admin user created. userId={}, loginId={}, employeeNo={}, role={}, status={}", userId, request.getLoginId(), employeeNo, request.getUserRole(), request.getStatus());
 
-        return userId;
+        return new UserCreateResponse(userId, employeeNo);
     }
 
     // 부서와 직급은 각각 독립적으로 배정될 수 있으므로 요청에 포함된 값만 수정한다.
@@ -140,13 +149,9 @@ public class UserAdminService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
-        if (!user.getEmployeeNo().equals(request.getEmployeeNo()) && userRepository.existsByEmployeeNo(request.getEmployeeNo())) {
-                throw new BusinessException(ErrorCode.INVALID_REQUEST);
-        }
+        user.updateBasicInfo(request.getUserName(), request.getUserEmail(), request.getUserPhone());
 
-        user.updateBasicInfo(request.getUserName(), request.getUserEmail(), request.getUserPhone(), request.getEmployeeNo());
-
-        log.info("Admin user updated. userId={}, employeeNo={}", userId, request.getEmployeeNo());
+        log.info("Admin user updated. userId={}", userId);
     }
 
     @Transactional

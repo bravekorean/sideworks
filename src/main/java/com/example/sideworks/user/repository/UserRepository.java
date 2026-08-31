@@ -1,6 +1,7 @@
 package com.example.sideworks.user.repository;
 
 import com.example.sideworks.user.entity.User;
+import com.example.sideworks.user.entity.UserStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -15,8 +16,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     boolean existsByLoginId(String loginId);
 
-    boolean existsByEmployeeNo(String employeeNo);
-
     List<User> findAllByDepartmentIsNull();
 
     List<User> findAllByPositionIsNull();
@@ -26,6 +25,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     @EntityGraph(attributePaths = {"department", "position"})
     Page<User> findAllByOrderByCreatedAtDescUserIdDesc(Pageable pageable);
+
+    @EntityGraph(attributePaths = {"department", "position"})
+    Page<User> findAllByStatusAndLoginIdNotOrderByUserNameAscUserIdAsc(UserStatus status, String loginId, Pageable pageable);
 
     @EntityGraph(attributePaths = {"department", "position"})
     Optional<User> findProfileByLoginId(String loginId);

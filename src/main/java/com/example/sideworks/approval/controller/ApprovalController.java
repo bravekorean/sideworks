@@ -1,11 +1,13 @@
 package com.example.sideworks.approval.controller;
 
 import com.example.sideworks.approval.dto.ApprovalCreateResponse;
+import com.example.sideworks.approval.dto.ApprovalActivityResponse;
 import com.example.sideworks.approval.dto.ApprovalDetailResponse;
 import com.example.sideworks.approval.dto.ApprovalDecisionRequest;
 import com.example.sideworks.approval.dto.ApprovalDraftRequest;
 import com.example.sideworks.approval.dto.ApprovalListResponse;
 import com.example.sideworks.approval.dto.ApprovalSubmitRequest;
+import com.example.sideworks.approval.entity.ApprovalStatus;
 import com.example.sideworks.approval.service.ApprovalService;
 import com.example.sideworks.common.dto.PageResponse;
 import lombok.RequiredArgsConstructor;
@@ -86,36 +88,87 @@ public class ApprovalController {
     }
 
     @GetMapping("/drafts")
-    public ResponseEntity<PageResponse<ApprovalListResponse>> getDraftApprovals(Authentication authentication, @PageableDefault(size = 20) Pageable pageable) {
-        Page<ApprovalListResponse> response = approvalService.getDraftApprovals(authentication.getName(), pageable);
+    public ResponseEntity<PageResponse<ApprovalListResponse>> getDraftApprovals(
+            Authentication authentication,
+            @RequestParam(required = false) String keyword,
+            @PageableDefault(size = 20) Pageable pageable
+    ) {
+        Page<ApprovalListResponse> response = approvalService.getDraftApprovals(authentication.getName(), keyword, pageable);
 
         return ResponseEntity.ok(PageResponse.from(response));
     }
 
     @GetMapping("/sent")
-    public ResponseEntity<PageResponse<ApprovalListResponse>> getSentApprovals(Authentication authentication, @PageableDefault(size = 20) Pageable pageable) {
-        Page<ApprovalListResponse> response = approvalService.getSentApprovals(authentication.getName(), pageable);
+    public ResponseEntity<PageResponse<ApprovalListResponse>> getSentApprovals(
+            Authentication authentication,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) ApprovalStatus status,
+            @PageableDefault(size = 20) Pageable pageable
+    ) {
+        Page<ApprovalListResponse> response = approvalService.getSentApprovals(authentication.getName(), keyword, status, pageable);
 
         return ResponseEntity.ok(PageResponse.from(response));
     }
 
     @GetMapping("/pending")
-    public ResponseEntity<PageResponse<ApprovalListResponse>> getPendingApprovals(Authentication authentication, @PageableDefault(size = 20) Pageable pageable) {
-        Page<ApprovalListResponse> response = approvalService.getPendingApprovals(authentication.getName(), pageable);
+    public ResponseEntity<PageResponse<ApprovalListResponse>> getPendingApprovals(
+            Authentication authentication,
+            @RequestParam(required = false) String keyword,
+            @PageableDefault(size = 20) Pageable pageable
+    ) {
+        Page<ApprovalListResponse> response = approvalService.getPendingApprovals(authentication.getName(), keyword, pageable);
 
         return ResponseEntity.ok(PageResponse.from(response));
     }
 
     @GetMapping("/processed")
-    public ResponseEntity<PageResponse<ApprovalListResponse>> getProcessedApprovals(Authentication authentication, @PageableDefault(size = 20) Pageable pageable) {
-        Page<ApprovalListResponse> response = approvalService.getProcessedApprovals(authentication.getName(), pageable);
+    public ResponseEntity<PageResponse<ApprovalListResponse>> getProcessedApprovals(
+            Authentication authentication,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) ApprovalStatus status,
+            @PageableDefault(size = 20) Pageable pageable
+    ) {
+        Page<ApprovalListResponse> response = approvalService.getProcessedApprovals(authentication.getName(), keyword, status, pageable);
 
         return ResponseEntity.ok(PageResponse.from(response));
     }
 
     @GetMapping("/cc")
-    public ResponseEntity<PageResponse<ApprovalListResponse>> getCcApprovals(Authentication authentication, @PageableDefault(size = 20) Pageable pageable) {
-        Page<ApprovalListResponse> response = approvalService.getCcApprovals(authentication.getName(), pageable);
+    public ResponseEntity<PageResponse<ApprovalListResponse>> getCcApprovals(
+            Authentication authentication,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) ApprovalStatus status,
+            @PageableDefault(size = 20) Pageable pageable
+    ) {
+        Page<ApprovalListResponse> response = approvalService.getCcApprovals(authentication.getName(), keyword, status, pageable);
+
+        return ResponseEntity.ok(PageResponse.from(response));
+    }
+
+    @GetMapping("/activities")
+    public ResponseEntity<PageResponse<ApprovalActivityResponse>> getRecentActivities(
+            Authentication authentication,
+            @PageableDefault(size = 5) Pageable pageable
+    ) {
+        Page<ApprovalActivityResponse> response = approvalService.getRecentActivities(
+                authentication.getName(),
+                pageable
+        );
+
+        return ResponseEntity.ok(PageResponse.from(response));
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<PageResponse<ApprovalListResponse>> searchApprovals(
+            Authentication authentication,
+            @RequestParam String keyword,
+            @PageableDefault(size = 20) Pageable pageable
+    ) {
+        Page<ApprovalListResponse> response = approvalService.searchApprovals(
+                authentication.getName(),
+                keyword,
+                pageable
+        );
 
         return ResponseEntity.ok(PageResponse.from(response));
     }

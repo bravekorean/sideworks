@@ -42,9 +42,9 @@ public class UserAdminController {
 
     @PostMapping
     public ResponseEntity<UserCreateResponse> createUser(@RequestBody UserCreateRequest request) {
-        Long userId = userAdminService.createUser(request);
+        UserCreateResponse response = userAdminService.createUser(request);
 
-        return ResponseEntity.status(HttpStatus.CREATED).body(new UserCreateResponse(userId));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping("/{userId}")

@@ -2,8 +2,11 @@ package com.example.sideworks.user.dto;
 
 import com.example.sideworks.user.entity.UserRole;
 import com.example.sideworks.user.entity.UserStatus;
+import com.example.sideworks.user.entity.JobFamily;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+
+import java.time.LocalDate;
 
 @Getter
 @NoArgsConstructor
@@ -19,7 +22,9 @@ public class UserCreateRequest {
 
     private String userPhone;
 
-    private String employeeNo;
+    private JobFamily jobFamily;
+
+    private LocalDate hireDate;
 
     private Long departmentId;
 

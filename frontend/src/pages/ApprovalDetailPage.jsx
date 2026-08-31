@@ -1,5 +1,12 @@
-import { useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useParams } from 'react-router'
+import {
+  approveApproval,
+  cancelApproval,
+  getApprovalDetail,
+  rejectApproval,
+} from '../api/approvalApi'
+import { getMyProfile } from '../api/userApi'
 
 const approvalStatusLabels = {
   DRAFT: '임시저장',
@@ -23,157 +30,23 @@ const actionTypeLabels = {
   CANCELED: '상신 취소',
 }
 
-const mockApprovalDetails = {
-  71: {
-    approvalId: 71,
-    writerId: 4,
-    writerName: '박준호',
-    title: '개발팀 업무용 노트북 구매 요청',
-    content:
-      '신규 입사자와 개발 환경 개선을 위해 업무용 노트북 3대 구매를 요청합니다.\n\n현재 사용 중인 장비는 빌드 및 로컬 테스트 과정에서 성능 저하가 반복되고 있습니다. 개발 생산성과 장애 대응 속도를 고려하여 표준 사양 장비로 교체하고자 합니다.',
-    approvalStatus: 'IN_PROGRESS',
-    currentStep: 1,
-    createdAt: '2026-07-28T09:20:00',
-    updatedAt: '2026-07-28T09:42:00',
-    submittedAt: '2026-07-28T09:42:00',
-    completedAt: null,
-    approvalLines: [
-      {
-        approvalLineId: 101,
-        approverId: 1,
-        approverName: '김관리',
-        approvalStep: 1,
-        approvalStatus: 'PENDING',
-        approvalComment: null,
-        processedAt: null,
-      },
-      {
-        approvalLineId: 102,
-        approverId: 2,
-        approverName: '이총괄',
-        approvalStep: 2,
-        approvalStatus: 'WAITING',
-        approvalComment: null,
-        processedAt: null,
-      },
-    ],
-    ccUsers: [
-      { userId: 7, userName: '정하늘' },
-      { userId: 9, userName: '오세진' },
-    ],
-    histories: [
-      {
-        approvalHistoryId: 201,
-        actorId: 4,
-        actorName: '박준호',
-        actionStep: 1,
-        actionType: 'SUBMITTED',
-        comment: '장비 견적서를 확인해 주세요.',
-        createdAt: '2026-07-28T09:42:00',
-      },
-    ],
-  },
-  68: {
-    approvalId: 68,
-    writerId: 5,
-    writerName: '이서윤',
-    title: '2026년 하반기 교육비 지원 신청',
-    content:
-      '하반기 백엔드 아키텍처 교육 과정 수강을 위한 교육비 지원을 신청합니다.\n\n교육을 통해 대용량 트래픽 처리와 데이터베이스 성능 개선 역량을 강화하고 팀 내 기술 공유 세션을 진행할 예정입니다.',
-    approvalStatus: 'IN_PROGRESS',
-    currentStep: 2,
-    createdAt: '2026-07-27T15:50:00',
-    updatedAt: '2026-07-28T08:30:00',
-    submittedAt: '2026-07-27T16:18:00',
-    completedAt: null,
-    approvalLines: [
-      {
-        approvalLineId: 103,
-        approverId: 3,
-        approverName: '최팀장',
-        approvalStep: 1,
-        approvalStatus: 'APPROVED',
-        approvalComment: '업무 연관성이 높아 승인합니다.',
-        processedAt: '2026-07-28T08:30:00',
-      },
-      {
-        approvalLineId: 104,
-        approverId: 1,
-        approverName: '김관리',
-        approvalStep: 2,
-        approvalStatus: 'PENDING',
-        approvalComment: null,
-        processedAt: null,
-      },
-      {
-        approvalLineId: 105,
-        approverId: 2,
-        approverName: '이총괄',
-        approvalStep: 3,
-        approvalStatus: 'WAITING',
-        approvalComment: null,
-        processedAt: null,
-      },
-    ],
-    ccUsers: [{ userId: 8, userName: '한유진' }],
-    histories: [
-      {
-        approvalHistoryId: 202,
-        actorId: 5,
-        actorName: '이서윤',
-        actionStep: 1,
-        actionType: 'SUBMITTED',
-        comment: null,
-        createdAt: '2026-07-27T16:18:00',
-      },
-      {
-        approvalHistoryId: 203,
-        actorId: 3,
-        actorName: '최팀장',
-        actionStep: 1,
-        actionType: 'APPROVED',
-        comment: '업무 연관성이 높아 승인합니다.',
-        createdAt: '2026-07-28T08:30:00',
-      },
-    ],
-  },
-  63: {
-    approvalId: 63,
-    writerId: 6,
-    writerName: '최민석',
-    title: '7월 프로젝트 외근 교통비 정산',
-    content:
-      '7월 고객사 방문에 사용한 교통비 정산을 요청합니다.\n\n방문 목적은 배포 전 최종 사용자 검수와 운영 담당자 교육이었습니다.',
-    approvalStatus: 'IN_PROGRESS',
-    currentStep: 1,
-    createdAt: '2026-07-26T10:40:00',
-    updatedAt: '2026-07-26T11:05:00',
-    submittedAt: '2026-07-26T11:05:00',
-    completedAt: null,
-    approvalLines: [
-      {
-        approvalLineId: 106,
-        approverId: 1,
-        approverName: '김관리',
-        approvalStep: 1,
-        approvalStatus: 'PENDING',
-        approvalComment: null,
-        processedAt: null,
-      },
-    ],
-    ccUsers: [],
-    histories: [
-      {
-        approvalHistoryId: 204,
-        actorId: 6,
-        actorName: '최민석',
-        actionStep: 1,
-        actionType: 'SUBMITTED',
-        comment: null,
-        createdAt: '2026-07-26T11:05:00',
-      },
-    ],
-  },
+function getDefaultBackNavigation(approval) {
+  if (!approval) {
+    return { path: '/dashboard', label: '대시보드' }
+  }
+
+  if (approval.approvalStatus === 'DRAFT') {
+    return { path: '/approvals/drafts', label: '임시저장함' }
+  }
+
+  if (
+    approval.approvalStatus === 'APPROVED' ||
+    approval.approvalStatus === 'REJECTED'
+  ) {
+    return { path: '/approvals/processed', label: '결재 처리함' }
+  }
+
+  return { path: '/approvals/sent', label: '내가 작성한 문서' }
 }
 
 function formatDateTime(value) {
@@ -186,39 +59,147 @@ function formatDateTime(value) {
 
 function ApprovalDetailPage() {
   const { approvalId } = useParams()
+  const location = useLocation()
+  const [approval, setApproval] = useState(null)
+  const [currentUserId, setCurrentUserId] = useState(null)
+  const [isDetailLoading, setIsDetailLoading] = useState(true)
+  const [detailLoadError, setDetailLoadError] = useState('')
   const [decisionType, setDecisionType] = useState(null)
   const [decisionComment, setDecisionComment] = useState('')
-  const approval = mockApprovalDetails[approvalId]
+  const [isDecisionSubmitting, setIsDecisionSubmitting] = useState(false)
+  const [decisionFeedback, setDecisionFeedback] = useState('')
 
-  if (!approval) {
+  useEffect(() => {
+    let isActive = true
+
+    const loadApprovalDetail = async () => {
+      try {
+        setIsDetailLoading(true)
+        setDetailLoadError('')
+
+        const [approvalResponse, profileResponse] = await Promise.all([
+          getApprovalDetail(approvalId),
+          getMyProfile(),
+        ])
+
+        if (isActive) {
+          setApproval(approvalResponse)
+          setCurrentUserId(profileResponse.userId)
+        }
+      } catch (error) {
+        if (isActive) {
+          setDetailLoadError(
+            error.response?.data?.message ??
+              '결재 문서를 불러오지 못했습니다.',
+          )
+        }
+      } finally {
+        if (isActive) {
+          setIsDetailLoading(false)
+        }
+      }
+    }
+
+    loadApprovalDetail()
+
+    return () => {
+      isActive = false
+    }
+  }, [approvalId])
+
+  const closeDecisionDialog = () => {
+    if (isDecisionSubmitting) {
+      return
+    }
+
+    setDecisionType(null)
+    setDecisionComment('')
+  }
+
+  const handleDecisionSubmit = async (event) => {
+    event.preventDefault()
+
+    const normalizedComment = decisionComment.trim()
+    if (decisionType === 'REJECTED' && !normalizedComment) {
+      setDecisionFeedback('반려 사유를 입력해 주세요.')
+      return
+    }
+
+    try {
+      setIsDecisionSubmitting(true)
+      setDecisionFeedback('')
+
+      if (decisionType === 'APPROVED') {
+        await approveApproval(approvalId, normalizedComment)
+      } else if (decisionType === 'REJECTED') {
+        await rejectApproval(approvalId, normalizedComment)
+      } else {
+        await cancelApproval(approvalId)
+      }
+
+      const refreshedApproval = await getApprovalDetail(approvalId)
+      setApproval(refreshedApproval)
+      setDecisionFeedback(
+        decisionType === 'APPROVED'
+          ? '결재 문서를 승인했습니다.'
+          : decisionType === 'REJECTED'
+            ? '결재 문서를 반려했습니다.'
+            : '결재 문서 상신을 취소했습니다.',
+      )
+      setDecisionType(null)
+      setDecisionComment('')
+    } catch (error) {
+      setDecisionFeedback(
+        error.response?.data?.message ??
+          '결재 문서를 처리하지 못했습니다.',
+      )
+    } finally {
+      setIsDecisionSubmitting(false)
+    }
+  }
+
+  if (isDetailLoading) {
     return (
       <div className="approval-detail-page">
         <section className="panel detail-not-found">
-          <span>404</span>
-          <h1>결재 문서를 찾을 수 없습니다.</h1>
-          <p>삭제되었거나 조회 권한이 없는 문서일 수 있습니다.</p>
-          <Link to="/approvals/pending">결재 대기함으로 돌아가기</Link>
+          <p>결재 문서를 불러오는 중입니다.</p>
         </section>
       </div>
     )
   }
 
-  const closeDecisionDialog = () => {
-    setDecisionType(null)
-    setDecisionComment('')
+  if (detailLoadError || !approval) {
+    return (
+      <div className="approval-detail-page">
+        <section className="panel detail-not-found">
+          <span>!</span>
+          <h1>결재 문서를 불러올 수 없습니다.</h1>
+          <p>{detailLoadError || '결재 문서 정보가 없습니다.'}</p>
+          <Link to="/dashboard">대시보드로 돌아가기</Link>
+        </section>
+      </div>
+    )
   }
 
-  const handleDecisionSubmit = (event) => {
-    event.preventDefault()
-    closeDecisionDialog()
-  }
+  const defaultBackNavigation = getDefaultBackNavigation(approval)
+  const backPath = location.state?.from ?? defaultBackNavigation.path
+  const backLabel = location.state?.fromLabel ?? defaultBackNavigation.label
+  const currentPendingLine = approval.approvalLines.find(
+    (line) => line.approvalStatus === 'PENDING',
+  )
+  const canDecide =
+    approval.approvalStatus === 'IN_PROGRESS' &&
+    currentPendingLine?.approverId === currentUserId
+  const canCancel =
+    approval.approvalStatus === 'IN_PROGRESS' &&
+    approval.writerId === currentUserId
 
   return (
     <div className="approval-detail-page">
       <div className="detail-navigation">
-        <Link className="back-link" to="/approvals/pending">
+        <Link className="back-link" to={backPath}>
           <span aria-hidden="true">←</span>
-          결재 대기함
+          {backLabel}
         </Link>
         <span>AP-{approval.approvalId}</span>
       </div>
@@ -229,9 +210,14 @@ function ApprovalDetailPage() {
             <span
               className={`document-status document-status--${approval.approvalStatus.toLowerCase()}`}
             >
-              {approvalStatusLabels[approval.approvalStatus]}
+              {approvalStatusLabels[approval.approvalStatus] ??
+                approval.approvalStatus}
             </span>
-            <span>현재 {approval.currentStep}단계</span>
+            <span>
+              {approval.approvalStatus === 'IN_PROGRESS'
+                ? `현재 ${approval.currentStep}단계`
+                : '처리 완료'}
+            </span>
           </div>
           <h1>{approval.title}</h1>
           <div className="detail-writer">
@@ -240,28 +226,60 @@ function ApprovalDetailPage() {
             </span>
             <div>
               <strong>{approval.writerName}</strong>
-              <small>작성자 · {formatDateTime(approval.submittedAt)} 상신</small>
+              <small>
+                작성자 · {formatDateTime(approval.submittedAt)} 상신
+              </small>
             </div>
           </div>
         </div>
 
-        <div className="detail-actions">
-          <button
-            className="decision-button decision-button--reject"
-            onClick={() => setDecisionType('REJECTED')}
-            type="button"
-          >
-            반려
-          </button>
-          <button
-            className="decision-button decision-button--approve"
-            onClick={() => setDecisionType('APPROVED')}
-            type="button"
-          >
-            승인
-          </button>
-        </div>
+        {(canDecide || canCancel) && (
+          <div className="detail-actions">
+            {canCancel && (
+              <button
+                className="decision-button decision-button--cancel"
+                onClick={() => {
+                  setDecisionFeedback('')
+                  setDecisionType('CANCELED')
+                }}
+                type="button"
+              >
+                상신 취소
+              </button>
+            )}
+            {canDecide && (
+              <>
+            <button
+              className="decision-button decision-button--reject"
+              onClick={() => {
+                setDecisionFeedback('')
+                setDecisionType('REJECTED')
+              }}
+              type="button"
+            >
+              반려
+            </button>
+            <button
+              className="decision-button decision-button--approve"
+              onClick={() => {
+                setDecisionFeedback('')
+                setDecisionType('APPROVED')
+              }}
+              type="button"
+            >
+              승인
+            </button>
+              </>
+            )}
+          </div>
+        )}
       </header>
+
+      {decisionFeedback && !decisionType && (
+        <div aria-live="polite" className="detail-feedback">
+          {decisionFeedback}
+        </div>
+      )}
 
       <div className="approval-detail-grid">
         <div className="approval-detail-main">
@@ -291,23 +309,30 @@ function ApprovalDetailPage() {
                 <h2>처리 이력</h2>
               </div>
             </div>
-            <ol className="detail-history-list">
-              {approval.histories.map((history) => (
-                <li key={history.approvalHistoryId}>
-                  <span
-                    className={`history-marker history-marker--${history.actionType.toLowerCase()}`}
-                  />
-                  <div className="history-content">
-                    <div>
-                      <strong>{history.actorName}</strong>
-                      <span>{actionTypeLabels[history.actionType]}</span>
+            {approval.histories.length > 0 ? (
+              <ol className="detail-history-list">
+                {approval.histories.map((history) => (
+                  <li key={history.approvalHistoryId}>
+                    <span
+                      className={`history-marker history-marker--${history.actionType.toLowerCase()}`}
+                    />
+                    <div className="history-content">
+                      <div>
+                        <strong>{history.actorName}</strong>
+                        <span>
+                          {actionTypeLabels[history.actionType] ??
+                            history.actionType}
+                        </span>
+                      </div>
+                      <time>{formatDateTime(history.createdAt)}</time>
+                      {history.comment && <p>{history.comment}</p>}
                     </div>
-                    <time>{formatDateTime(history.createdAt)}</time>
-                    {history.comment && <p>{history.comment}</p>}
-                  </div>
-                </li>
-              ))}
-            </ol>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="cc-user-empty">저장된 처리 이력이 없습니다.</p>
+            )}
           </section>
         </div>
 
@@ -320,24 +345,33 @@ function ApprovalDetailPage() {
               </div>
               <span>{approval.approvalLines.length}명</span>
             </div>
-            <ol className="approval-line-list">
-              {approval.approvalLines.map((line) => (
-                <li
-                  className={`approval-line-item approval-line-item--${line.approvalStatus.toLowerCase()}`}
-                  key={line.approvalLineId}
-                >
-                  <div className="approval-step">{line.approvalStep}</div>
-                  <div className="approval-line-user">
-                    <strong>{line.approverName}</strong>
-                    <span>{lineStatusLabels[line.approvalStatus]}</span>
-                    {line.processedAt && (
-                      <time>{formatDateTime(line.processedAt)}</time>
-                    )}
-                    {line.approvalComment && <p>{line.approvalComment}</p>}
-                  </div>
-                </li>
-              ))}
-            </ol>
+            {approval.approvalLines.length > 0 ? (
+              <ol className="approval-line-list">
+                {approval.approvalLines.map((line) => (
+                  <li
+                    className={`approval-line-item approval-line-item--${line.approvalStatus.toLowerCase()}`}
+                    key={line.approvalLineId}
+                  >
+                    <div className="approval-step">{line.approvalStep}</div>
+                    <div className="approval-line-user">
+                      <strong>{line.approverName}</strong>
+                      <span>
+                        {lineStatusLabels[line.approvalStatus] ??
+                          line.approvalStatus}
+                      </span>
+                      {line.processedAt && (
+                        <time>{formatDateTime(line.processedAt)}</time>
+                      )}
+                      {line.approvalComment && (
+                        <p>{line.approvalComment}</p>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="cc-user-empty">지정된 결재자가 없습니다.</p>
+            )}
           </section>
 
           <section className="panel cc-user-panel">
@@ -402,19 +436,27 @@ function ApprovalDetailPage() {
               {decisionType === 'APPROVED' ? '✓' : '!'}
             </div>
             <h2 id="decision-dialog-title">
-              문서를 {decisionType === 'APPROVED' ? '승인' : '반려'}할까요?
+              {decisionType === 'CANCELED'
+                ? '결재 문서 상신을 취소할까요?'
+                : `문서를 ${decisionType === 'APPROVED' ? '승인' : '반려'}할까요?`}
             </h2>
             <p>
-              현재 화면은 목 데이터로 동작하며, 실제 처리는 API 연결 후
-              반영됩니다.
+              {decisionType === 'CANCELED'
+                ? '취소한 문서는 더 이상 결재를 진행할 수 없습니다.'
+                : '처리 결과는 즉시 결재선과 처리 이력에 반영됩니다.'}
             </p>
             <form onSubmit={handleDecisionSubmit}>
+              {decisionType !== 'CANCELED' && (
+                <>
               <label htmlFor="decision-comment">
                 {decisionType === 'APPROVED' ? '의견' : '반려 사유'}
               </label>
               <textarea
+                disabled={isDecisionSubmitting}
                 id="decision-comment"
-                onChange={(event) => setDecisionComment(event.target.value)}
+                onChange={(event) =>
+                  setDecisionComment(event.target.value)
+                }
                 placeholder={
                   decisionType === 'APPROVED'
                     ? '승인 의견을 입력하세요. (선택)'
@@ -424,8 +466,19 @@ function ApprovalDetailPage() {
                 rows="4"
                 value={decisionComment}
               />
+                </>
+              )}
+              {decisionFeedback && (
+                <p aria-live="polite" className="compose-feedback">
+                  {decisionFeedback}
+                </p>
+              )}
               <div className="decision-dialog__actions">
-                <button onClick={closeDecisionDialog} type="button">
+                <button
+                  disabled={isDecisionSubmitting}
+                  onClick={closeDecisionDialog}
+                  type="button"
+                >
                   취소
                 </button>
                 <button
@@ -434,9 +487,16 @@ function ApprovalDetailPage() {
                       ? 'dialog-confirm--approve'
                       : 'dialog-confirm--reject'
                   }
+                  disabled={isDecisionSubmitting}
                   type="submit"
                 >
-                  {decisionType === 'APPROVED' ? '승인하기' : '반려하기'}
+                  {isDecisionSubmitting
+                    ? '처리 중...'
+                    : decisionType === 'APPROVED'
+                      ? '승인하기'
+                      : decisionType === 'REJECTED'
+                        ? '반려하기'
+                        : '상신 취소'}
                 </button>
               </div>
             </form>

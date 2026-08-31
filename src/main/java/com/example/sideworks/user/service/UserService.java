@@ -1,15 +1,14 @@
 package com.example.sideworks.user.service;
 
+import com.example.sideworks.user.dto.*;
 import com.example.sideworks.user.entity.User;
 import com.example.sideworks.common.exception.BusinessException;
 import com.example.sideworks.common.exception.ErrorCode;
-import com.example.sideworks.user.dto.MyProfileResponse;
-import com.example.sideworks.user.dto.MyProfileUpdateRequest;
-import com.example.sideworks.user.dto.AccountWithdrawalRequest;
-import com.example.sideworks.user.dto.PasswordChangeRequest;
 import com.example.sideworks.user.entity.UserStatus;
 import com.example.sideworks.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -71,6 +70,13 @@ public class UserService {
 
         user.changePassword(passwordEncoder.encode(request.getNewPassword()));
     }
+
+    public Page<UserDirectoryResponse> findDirectoryUsers(String loginId, Pageable pageable) {
+        findActiveUser(loginId);
+
+        return userRepository.findAllByStatusAndLoginIdNotOrderByUserNameAscUserIdAsc(UserStatus.ACTIVE, loginId, pageable).map(UserDirectoryResponse::from);
+    }
+
 
     private User findActiveUser(String loginId) {
         User user = userRepository.findProfileByLoginId(loginId)
