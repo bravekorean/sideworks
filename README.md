@@ -3,6 +3,8 @@
 SideWorks는 전자결재와 조직 관리를 중심으로 개발하는 그룹웨어 MVP입니다.
 Spring Boot와 React를 기반으로 설계·구현하며, 개발 과정에서의 기술 선택과 문제 해결을 학습하고 취업 포트폴리오로 정리하는 것을 목표로 합니다.
 
+현재 V1의 핵심 기능과 프론트엔드 API 연동, JWT 자동 재발급 검증 및 Swagger/OpenAPI 문서화를 완료했으며 배포를 준비하고 있습니다.
+
 ## 주요 기능
 
 - JWT 기반 로그인과 권한 관리
@@ -11,10 +13,18 @@ Spring Boot와 React를 기반으로 설계·구현하며, 개발 과정에서�
 - 결재선·참조자·처리 이력 관리
 - 마이페이지
 - React/MUI 기반 관리 화면과 대시보드
+- Swagger/OpenAPI 기반 API 명세
+
+## V1 진행 상태
+
+- 완료: 인증·인가, 사용자·부서·직급 관리, 마이페이지, 전자결재, 통합 검색, 대시보드
+- 완료: React 화면과 백엔드 API 연동, Access Token 자동 재발급 검증
+- 완료: 역할별 접근 검증 및 Swagger/OpenAPI 문서화
+- 진행 예정: 운영 환경 구성, 배포, 배포 후 핵심 업무 흐름 검증
 
 ## 기술 스택
 
-- Backend: Java 21, Spring Boot 3.5, Spring Security, Spring Data JPA, QueryDSL
+- Backend: Java 21, Spring Boot 3.5, Spring Security, Spring Data JPA, QueryDSL, springdoc-openapi
 - Database: MySQL 8.0
 - Frontend: React 19, MUI
 - Authentication: JWT Access Token, Refresh Token Cookie
