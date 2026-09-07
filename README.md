@@ -75,6 +75,10 @@ Redis와 Kafka는 사용 경험을 보여주기 위해 미리 도입하지 않�
 
 ## 문서
 
-- 개발 일정과 완료 상태: `docs/roadmap.md`
-- 아키텍처와 설계 기록: `docs/architecture.md`
-- Codex 협업 및 프로젝트 원칙: `AGENTS.md`
+- [아키텍처와 설계 결정](docs/architecture.md)
+- [클래스 구조와 요청 흐름](docs/class-structure.md)
+- [DB 구조와 설계 결정](docs/database-design.md)
+- [JWT 인증과 전자결재 흐름](docs/approval-security-flow.md)
+- [개발 현황과 V2 로드맵](docs/roadmap.md)
+- [주요 트러블슈팅](docs/troubleshooting.md)
+- [AI 협업 방식](docs/ai-collaboration.md)

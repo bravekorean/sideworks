@@ -60,7 +60,14 @@ frontend/.env.*
 AGENTS.md
 
 # local project documentation
-docs/
+docs/*
+!docs/architecture.md
+!docs/class-structure.md
+!docs/database-design.md
+!docs/approval-security-flow.md
+!docs/roadmap.md
+!docs/troubleshooting.md
+!docs/ai-collaboration.md
 
 # logs
 npm-debug.log*
