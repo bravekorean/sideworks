@@ -6,7 +6,7 @@
 
 SideWorks는 학습 및 취업 포트폴리오를 목적으로 개발하는 그룹웨어 MVP이다.
 
-V1은 사용자·부서·직급 관리, JWT 인증, 기본 전자결재, React 화면 연동과 배포까지 완성하는 것을 목표로 한다. 복잡한 자동 결재선, 세부 권한, 실시간 알림과 협업 채팅은 V2에서 실제 요구에 맞춰 확장한다.
+V1은 사용자·부서·직급 관리, JWT 인증, 기본 전자결재, React 화면 연동과 AWS 배포 검증까지 완료했다. 복잡한 자동 결재선, 세부 권한, 실시간 알림과 협업 채팅은 V2에서 실제 요구에 맞춰 확장한다.
 
 ## 2. 기술 스택
 
@@ -50,6 +50,22 @@ MySQL
 Controller는 HTTP 요청과 응답을 담당하고, Service는 트랜잭션과 유스케이스 흐름을 조정한다. Entity는 자신의 상태 변경 규칙을 가지며, Repository는 영속성과 조회를 담당한다.
 
 복잡도가 충분하지 않은 기능에는 Validator나 Factory를 기계적으로 추가하지 않는다. 현재는 전자결재 상신처럼 검증과 생성 책임이 집중된 기능에만 분리 구조를 적용한다.
+
+### V1 배포 검증 구조
+
+```text
+Browser
+    ↓ HTTP
+Nginx on EC2
+    ├─ /       → React 정적 파일
+    └─ /api/*  → Spring Boot (127.0.0.1:8080)
+                         ↓ TLS
+                    RDS MySQL (private)
+```
+
+Nginx가 정적 파일 제공과 API Reverse Proxy를 함께 담당하여 브라우저는 동일 Origin으로 접근한다. Spring Boot는 외부에 직접 노출하지 않고 EC2의 Loopback 주소에서만 수신하며, DB와 JWT 설정은 저장소가 아닌 실행 환경에서 주입한다. RDS는 public access 없이 애플리케이션 서버의 보안 그룹에서만 접근하도록 구성했다.
+
+이 구조는 개인 프로젝트의 단일 서버 배포에는 단순하고 관리하기 쉽다. 다만 Nginx와 애플리케이션이 같은 EC2에 있어 독립 확장과 무중단 배포에는 한계가 있다. V2에서도 실제 가용성 요구가 생기기 전까지 불필요한 컨테이너 오케스트레이션이나 MSA는 도입하지 않는다.
 
 ## 4. 주요 패키지 책임
 
@@ -218,6 +234,8 @@ Access Token이 만료되면 프론트엔드의 Axios 응답 인터셉터가 Ref
 * V2 협업 채팅은 양방향 통신이 필요한 경우 WebSocket을 사용한다.
 * JPA는 CRUD 생산성에, QueryDSL은 복잡한 조회의 타입 안정성에 사용한다.
 * 세부 권한은 V1의 세 역할로 시작하고 실제 요구가 생기면 V2에서 사용자별 권한으로 확장한다.
+* V1 배포는 Nginx, 단일 Spring Boot 프로세스와 private RDS로 구성하여 운영 경계를 학습하고 검증했다.
+* 운영 자격증명은 환경변수로 주입하며 로컬 설정과 배포 설정을 분리한다.
 
 ## 11. 상세 문서
 
@@ -225,5 +243,6 @@ Access Token이 만료되면 프론트엔드의 Axios 응답 인터셉터가 Ref
 * [DB 구조와 설계 결정](database-design.md)
 * [JWT 인증과 전자결재 흐름](approval-security-flow.md)
 * [개발 로드맵](roadmap.md)
+* [AWS 배포 및 트러블슈팅](deployment.md)
 * [주요 트러블슈팅](troubleshooting.md)
 * [AI 협업 방식](ai-collaboration.md)

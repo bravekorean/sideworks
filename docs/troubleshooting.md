@@ -4,6 +4,8 @@
 
 이 문서는 개발 중 발견한 문제를 증상, 원인, 해결과 검증 순서로 정리한다. 실제 비밀번호, 토큰, DB 접속정보와 사용자 개인정보는 포함하지 않는다.
 
+AWS 배포 과정에서 발생한 SSH 키 권한, 파일 경로, systemd 환경 파일, Nginx Reverse Proxy와 애플리케이션 오류 진단은 [AWS 배포 및 트러블슈팅](deployment.md)에 별도로 정리했다.
+
 ## 1. SpringDoc 도입 후 Commons Lang 취약점 경고
 
 ### 문제

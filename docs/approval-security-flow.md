@@ -148,9 +148,9 @@ V1에서는 반려 즉시 문서를 종료하며 뒤의 `WAITING` 결재선은 �
 - 동시 만료 요청의 중복 재발급 방지
 - 짧은 Access Token 유효시간을 이용한 브라우저 검증
 
-배포 및 V2에서 검토할 항목:
+V2에서 검토할 항목:
 
-- 운영 환경의 `Secure` 및 `SameSite` Cookie 정책
+- HTTPS 도입 시 `Secure` 및 `SameSite` Cookie 정책 강화
 - Refresh Token 서버 저장, 회전과 강제 폐기 정책
 - 인증 실패 응답의 `401 Unauthorized`와 `403 Forbidden` 구분
 - 계정 탈취 대응과 Refresh Token 재사용 탐지
