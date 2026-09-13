@@ -114,7 +114,7 @@ public class UserAdminService {
 
         Long userId = userRepository.save(user).getUserId();
 
-        log.info("Admin user created. userId={}, loginId={}, employeeNo={}, role={}, status={}", userId, request.getLoginId(), employeeNo, request.getUserRole(), request.getStatus());
+        log.info("Admin user created. userId={}, role={}, status={}", userId, request.getUserRole(), request.getStatus());
 
         return new UserCreateResponse(userId, employeeNo);
     }

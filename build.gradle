@@ -48,3 +48,8 @@ dependencies {
 tasks.named('test') {
     useJUnitPlatform()
 }
+
+// 운영 배포 JAR에는 로컬 DB 비밀번호와 JWT Secret이 포함되지 않도록 한다.
+tasks.named('bootJar') {
+    exclude('**/application-local.properties')
+}
