@@ -3,6 +3,7 @@ import { Link, useLocation, useParams } from 'react-router'
 import {
   approveApproval,
   cancelApproval,
+  downloadApprovalAttachment,
   getApprovalDetail,
   rejectApproval,
 } from '../api/approvalApi'
@@ -194,6 +195,14 @@ function ApprovalDetailPage() {
     approval.approvalStatus === 'IN_PROGRESS' &&
     approval.writerId === currentUserId
 
+  const handleAttachmentDownload = async (attachment) => {
+    try {
+      await downloadApprovalAttachment(approvalId, attachment)
+    } catch (error) {
+      setDecisionFeedback(error.response?.data?.message ?? '첨부파일을 내려받지 못했습니다.')
+    }
+  }
+
   return (
     <div className="approval-detail-page">
       <div className="detail-navigation">
@@ -333,6 +342,19 @@ function ApprovalDetailPage() {
             ) : (
               <p className="cc-user-empty">저장된 처리 이력이 없습니다.</p>
             )}
+          </section>
+
+          <section className="panel detail-attachment-panel">
+            <div className="detail-section-header"><div><span className="section-kicker">ATTACHMENTS</span><h2>첨부파일</h2></div><span>{approval.attachments?.length ?? 0}개</span></div>
+            {(approval.attachments?.length ?? 0) > 0 ? (
+              <div className="detail-attachment-list">
+                {approval.attachments.map((attachment) => (
+                  <button key={attachment.attachmentId} onClick={() => handleAttachmentDownload(attachment)} type="button">
+                    <span>{attachment.originalFileName}</span><small>{(attachment.fileSize / 1024 / 1024).toFixed(2)} MB · 다운로드</small>
+                  </button>
+                ))}
+              </div>
+            ) : <p className="cc-user-empty">첨부파일이 없습니다.</p>}
           </section>
         </div>
 

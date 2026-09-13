@@ -1,5 +1,8 @@
 package com.example.sideworks.approval.service;
 
+import com.example.sideworks.approval.attachment.dto.ApprovalAttachmentResponse;
+import com.example.sideworks.approval.attachment.repository.ApprovalAttachmentRepository;
+import com.example.sideworks.approval.attachment.storage.FileStorage;
 import com.example.sideworks.approval.dto.ApprovalCcResponse;
 import com.example.sideworks.approval.dto.ApprovalActivityResponse;
 import com.example.sideworks.approval.dto.ApprovalDetailHeaderResponse;
@@ -32,6 +35,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -52,6 +57,8 @@ public class ApprovalService {
     private final ApprovalLineRepository approvalLineRepository;
     private final ApprovalCcRepository approvalCcRepository;
     private final ApprovalHistoryRepository approvalHistoryRepository;
+    private final ApprovalAttachmentRepository attachmentRepository;
+    private final FileStorage fileStorage;
     private final ApprovalSubmissionValidator submissionValidator;
     private final ApprovalSubmissionFactory submissionFactory;
 
@@ -80,8 +87,20 @@ public class ApprovalService {
     @Transactional
     public void deleteDraft(Long approvalId, String loginId) {
         Approval approval = findEditableDraft(approvalId, loginId);
+        List<String> storageKeys = attachmentRepository.findAllByApproval_ApprovalId(approvalId)
+                .stream()
+                .map(attachment -> attachment.getStorageKey())
+                .toList();
 
         approvalRepository.delete(approval);
+        if (!storageKeys.isEmpty()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    storageKeys.forEach(fileStorage::delete);
+                }
+            });
+        }
     }
 
     @Transactional
@@ -227,12 +246,18 @@ public class ApprovalService {
                 .findDetailCcsByApprovalId(approvalId);
         List<ApprovalHistoryResponse> histories = approvalRepository
                 .findDetailHistoriesByApprovalId(approvalId);
+        List<ApprovalAttachmentResponse> attachments = attachmentRepository
+                .findAllByApproval_ApprovalIdOrderByApprovalAttachmentIdAsc(approvalId)
+                .stream()
+                .map(ApprovalAttachmentResponse::from)
+                .toList();
 
         return ApprovalDetailResponse.of(
                 header,
                 approvalLines,
                 ccUsers,
-                histories
+                histories,
+                attachments
         );
     }
 

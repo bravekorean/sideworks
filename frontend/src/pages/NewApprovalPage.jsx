@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
   createDraft,
+  deleteApprovalAttachment,
   deleteDraft,
   getApprovalDetail,
   submitApproval,
+  uploadApprovalAttachments,
   updateDraft,
 } from '../api/approvalApi'
 import { getDirectory } from '../api/userApi'
@@ -28,6 +30,8 @@ function NewApprovalPage() {
   const [content, setContent] = useState('')
   const [approverIds, setApproverIds] = useState([])
   const [ccUserIds, setCcUserIds] = useState([])
+  const [attachments, setAttachments] = useState([])
+  const [pendingFiles, setPendingFiles] = useState([])
 
   // 임시저장 문서 조회 상태
   const [isDraftLoading, setIsDraftLoading] = useState(isEditing)
@@ -70,6 +74,7 @@ function NewApprovalPage() {
 
         setTitle(approval.title)
         setContent(approval.content)
+        setAttachments(approval.attachments ?? [])
       } catch (error) {
         if (isActive) {
           setDraftLoadError(
@@ -131,6 +136,40 @@ function NewApprovalPage() {
       user.userRole === 'ADMIN' || user.userRole === 'SUPER_ADMIN',
   )
   const availableCcUsers = directoryUsers
+  const attachmentSize = attachments.reduce((sum, file) => sum + file.fileSize, 0)
+    + pendingFiles.reduce((sum, file) => sum + file.size, 0)
+
+  const handleFileSelection = (event) => {
+    const selected = [...event.target.files]
+    const nextCount = attachments.length + pendingFiles.length + selected.length
+    const nextSize = attachmentSize + selected.reduce((sum, file) => sum + file.size, 0)
+    if (selected.some((file) => file.size > 20 * 1024 * 1024)) {
+      setFeedback('파일 하나의 크기는 20MB를 넘을 수 없습니다.')
+    } else if (nextCount > 5 || nextSize > 100 * 1024 * 1024) {
+      setFeedback('첨부파일은 최대 5개, 총 100MB까지 등록할 수 있습니다.')
+    } else {
+      setPendingFiles((current) => [...current, ...selected])
+      setFeedback('')
+    }
+    event.target.value = ''
+  }
+
+  const uploadPendingFiles = async (targetApprovalId) => {
+    if (pendingFiles.length === 0) return
+    const uploaded = await uploadApprovalAttachments(targetApprovalId, pendingFiles)
+    setAttachments((current) => [...current, ...uploaded])
+    setPendingFiles([])
+  }
+
+  const removeAttachment = async (attachmentId) => {
+    try {
+      await deleteApprovalAttachment(approvalId, attachmentId)
+      setAttachments((current) => current.filter((file) => file.attachmentId !== attachmentId))
+      setFeedback('첨부파일을 삭제했습니다.')
+    } catch (error) {
+      setFeedback(error.response?.data?.message ?? '첨부파일을 삭제하지 못했습니다.')
+    }
+  }
 
   const toggleApprover = (userId) => {
     if (ccUserIds.includes(userId)) {
@@ -201,6 +240,7 @@ function NewApprovalPage() {
         })
       }
 
+      await uploadPendingFiles(targetApprovalId)
       await submitApproval(targetApprovalId, approverIds, ccUserIds)
 
       navigate(`/approvals/${targetApprovalId}`, {
@@ -228,6 +268,7 @@ function NewApprovalPage() {
 
       if (isEditing) {
         await updateDraft(approvalId, title.trim(), content.trim())
+        await uploadPendingFiles(approvalId)
         setFeedback('임시저장 문서를 수정했습니다.')
         return
       }
@@ -236,6 +277,8 @@ function NewApprovalPage() {
         title.trim(),
         content.trim(),
       )
+
+      await uploadPendingFiles(createdApprovalId)
 
       setFeedback('임시저장되었습니다.')
       navigate(`/approvals/${createdApprovalId}/edit`, {
@@ -374,6 +417,25 @@ function NewApprovalPage() {
               />
               <small>{content.length.toLocaleString()}자</small>
             </label>
+          </section>
+
+          <section className="panel compose-panel attachment-compose-panel">
+            <div className="compose-section-heading">
+              <span className="compose-section-number">03</span>
+              <div><h2>첨부파일</h2><p>PDF, PNG, JPG, DOCX, XLSX 파일을 최대 5개까지 등록합니다.</p></div>
+            </div>
+            <label className="attachment-picker">
+              <input accept=".pdf,.png,.jpg,.jpeg,.docx,.xlsx" multiple onChange={handleFileSelection} type="file" />
+              <span>파일 선택</span><small>파일당 20MB · 총 100MB</small>
+            </label>
+            <div className="attachment-edit-list">
+              {attachments.map((file) => (
+                <div key={file.attachmentId}><span>{file.originalFileName}</span><button onClick={() => removeAttachment(file.attachmentId)} type="button">삭제</button></div>
+              ))}
+              {pendingFiles.map((file, index) => (
+                <div key={`${file.name}-${file.lastModified}-${index}`}><span>{file.name} · 업로드 대기</span><button onClick={() => setPendingFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} type="button">제외</button></div>
+              ))}
+            </div>
           </section>
         </div>
 

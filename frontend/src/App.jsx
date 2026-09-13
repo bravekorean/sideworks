@@ -8,6 +8,7 @@ import ErrorPage from './pages/ErrorPage'
 import LoginPage from './pages/LoginPage'
 import MyPage from './pages/MyPage'
 import NewApprovalPage from './pages/NewApprovalPage'
+import OrganizationPage from './pages/OrganizationPage'
 import PendingApprovalPage from './pages/PendingApprovalPage'
 import PositionManagementPage from './pages/PositionManagementPage'
 import SearchResultsPage from './pages/SearchResultsPage'
@@ -19,6 +20,7 @@ function App() {
     <Routes>
       <Route element={<AppShell />}>
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/organization" element={<OrganizationPage />} />
         <Route path="/approvals/new" element={<NewApprovalPage />} />
         <Route
           path="/approvals/:approvalId/edit"

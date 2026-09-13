@@ -1,5 +1,6 @@
 package com.example.sideworks.approval.dto;
 
+import com.example.sideworks.approval.attachment.dto.ApprovalAttachmentResponse;
 import com.example.sideworks.approval.entity.ApprovalStatus;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -26,12 +27,14 @@ public class ApprovalDetailResponse {
     private final List<ApprovalLineResponse> approvalLines;
     private final List<ApprovalCcResponse> ccUsers;
     private final List<ApprovalHistoryResponse> histories;
+    private final List<ApprovalAttachmentResponse> attachments;
 
     public static ApprovalDetailResponse of(
                                             ApprovalDetailHeaderResponse header,
                                             List<ApprovalLineResponse> approvalLines,
                                             List<ApprovalCcResponse> ccUsers,
-                                            List<ApprovalHistoryResponse> histories) {
+                                            List<ApprovalHistoryResponse> histories,
+                                            List<ApprovalAttachmentResponse> attachments) {
         return new ApprovalDetailResponse(
                 header.getApprovalId(),
                 header.getWriterId(),
@@ -46,7 +49,8 @@ public class ApprovalDetailResponse {
                 header.getCompletedAt(),
                 List.copyOf(approvalLines),
                 List.copyOf(ccUsers),
-                List.copyOf(histories)
+                List.copyOf(histories),
+                List.copyOf(attachments)
         );
     }
 }

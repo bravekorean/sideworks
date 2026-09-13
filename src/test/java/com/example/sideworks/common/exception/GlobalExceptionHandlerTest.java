@@ -7,6 +7,8 @@ import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
@@ -78,5 +80,25 @@ class GlobalExceptionHandlerTest {
                         keyValue -> keyValue.key,
                         keyValue -> keyValue.value
                 ));
+    }
+
+    @Test
+    void 첨부파일_요청_제한을_초과하면_413으로_응답한다() {
+        var response = exceptionHandler.handleMaxUploadSizeExceededException(
+                new MaxUploadSizeExceededException(20 * 1024 * 1024L)
+        );
+
+        assertThat(response.getStatusCode().value()).isEqualTo(413);
+        assertThat(response.getBody().getCode()).isEqualTo(ErrorCode.ATTACHMENT_LIMIT_EXCEEDED.getCode());
+    }
+
+    @Test
+    void 지원하지_않는_Content_Type은_415로_응답한다() {
+        var response = exceptionHandler.handleHttpMediaTypeNotSupportedException(
+                new HttpMediaTypeNotSupportedException("application/json")
+        );
+
+        assertThat(response.getStatusCode().value()).isEqualTo(415);
+        assertThat(response.getBody().getCode()).isEqualTo(ErrorCode.UNSUPPORTED_MEDIA_TYPE.getCode());
     }
 }

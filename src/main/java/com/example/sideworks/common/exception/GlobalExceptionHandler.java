@@ -3,8 +3,10 @@ package com.example.sideworks.common.exception;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -35,6 +37,36 @@ public class GlobalExceptionHandler {
                 .addKeyValue("errorCode", errorCode.getCode())
                 .addKeyValue("status", errorCode.getStatus().value())
                 .log("Illegal argument handled");
+
+        return ResponseEntity
+                .status(errorCode.getStatus())
+                .body(ErrorResponse.from(errorCode));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e) {
+        ErrorCode errorCode = ErrorCode.ATTACHMENT_LIMIT_EXCEEDED;
+
+        LOG.atWarn()
+                .addKeyValue("event", "ATTACHMENT_SIZE_LIMIT_EXCEEDED")
+                .addKeyValue("errorCode", errorCode.getCode())
+                .addKeyValue("status", errorCode.getStatus().value())
+                .log("Attachment upload size limit exceeded");
+
+        return ResponseEntity
+                .status(errorCode.getStatus())
+                .body(ErrorResponse.from(errorCode));
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleHttpMediaTypeNotSupportedException(HttpMediaTypeNotSupportedException e) {
+        ErrorCode errorCode = ErrorCode.UNSUPPORTED_MEDIA_TYPE;
+
+        LOG.atWarn()
+                .addKeyValue("event", "UNSUPPORTED_MEDIA_TYPE")
+                .addKeyValue("errorCode", errorCode.getCode())
+                .addKeyValue("status", errorCode.getStatus().value())
+                .log("Unsupported request media type");
 
         return ResponseEntity
                 .status(errorCode.getStatus())

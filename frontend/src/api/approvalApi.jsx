@@ -94,3 +94,30 @@ export async function cancelApproval(approvalId) {
 export async function deleteDraft(approvalId) {
   await apiClient.delete(`/approvals/${approvalId}`)
 }
+
+export async function uploadApprovalAttachments(approvalId, files) {
+  const formData = new FormData()
+  files.forEach((file) => formData.append('files', file))
+  const response = await apiClient.post(
+    `/approvals/${approvalId}/attachments`,
+    formData,
+  )
+  return response.data
+}
+
+export async function deleteApprovalAttachment(approvalId, attachmentId) {
+  await apiClient.delete(`/approvals/${approvalId}/attachments/${attachmentId}`)
+}
+
+export async function downloadApprovalAttachment(approvalId, attachment) {
+  const response = await apiClient.get(
+    `/approvals/${approvalId}/attachments/${attachment.attachmentId}/download`,
+    { responseType: 'blob' },
+  )
+  const url = URL.createObjectURL(response.data)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = attachment.originalFileName
+  link.click()
+  URL.revokeObjectURL(url)
+}

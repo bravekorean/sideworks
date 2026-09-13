@@ -64,6 +64,7 @@ class ApprovalControllerTest {
                 header,
                 List.of(),
                 List.of(),
+                List.of(),
                 List.of()
         );
 

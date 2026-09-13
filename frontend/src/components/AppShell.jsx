@@ -8,6 +8,7 @@ const navigationGroups = [
     label: 'WORKSPACE',
     items: [
       { id: 'dashboard', label: '대시보드', icon: 'home', path: '/dashboard' },
+      { id: 'organization', label: '조직도', icon: 'building', path: '/organization' },
     ],
   },
   {

@@ -1,5 +1,7 @@
 package com.example.sideworks.approval.service;
 
+import com.example.sideworks.approval.attachment.repository.ApprovalAttachmentRepository;
+import com.example.sideworks.approval.attachment.storage.FileStorage;
 import com.example.sideworks.approval.dto.ApprovalActivityResponse;
 import com.example.sideworks.approval.dto.ApprovalListResponse;
 import com.example.sideworks.approval.factory.ApprovalSubmissionFactory;
@@ -43,6 +45,10 @@ class ApprovalServiceActivityTest {
     @Mock
     private ApprovalHistoryRepository approvalHistoryRepository;
     @Mock
+    private ApprovalAttachmentRepository attachmentRepository;
+    @Mock
+    private FileStorage fileStorage;
+    @Mock
     private ApprovalSubmissionValidator submissionValidator;
     @Mock
     private ApprovalSubmissionFactory submissionFactory;
@@ -57,6 +63,8 @@ class ApprovalServiceActivityTest {
                 approvalLineRepository,
                 approvalCcRepository,
                 approvalHistoryRepository,
+                attachmentRepository,
+                fileStorage,
                 submissionValidator,
                 submissionFactory
         );

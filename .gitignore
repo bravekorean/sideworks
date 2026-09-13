@@ -71,6 +71,7 @@ docs/*
 
 # logs
 /logs/
+/sideworks-data/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
