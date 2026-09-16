@@ -66,7 +66,8 @@ class ApprovalServiceActivityTest {
                 attachmentRepository,
                 fileStorage,
                 submissionValidator,
-                submissionFactory
+                submissionFactory,
+                org.mockito.Mockito.mock(com.example.sideworks.attendance.service.AttendanceCorrectionService.class)
         );
     }
 

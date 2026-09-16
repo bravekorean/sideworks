@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   createDraft,
   deleteApprovalAttachment,
@@ -10,6 +10,7 @@ import {
   updateDraft,
 } from '../api/approvalApi'
 import { getDirectory } from '../api/userApi'
+import { getCorrectionApprovers, getCorrectionRecord, submitCorrectionDocument } from '../api/attendanceCorrectionApi'
 
 const documentTypes = [
   '품의서',
@@ -17,21 +18,59 @@ const documentTypes = [
   '비용 정산',
   '교육 신청',
   '근무 신청',
+  '근태 정정',
 ]
 
 function NewApprovalPage() {
   const { approvalId } = useParams()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const isEditing = Boolean(approvalId)
 
   // 결재 문서 입력 상태
-  const [documentType, setDocumentType] = useState(documentTypes[0])
+  const [documentType, setDocumentType] = useState(!approvalId && searchParams.get('type') === 'attendance-correction' ? '근태 정정' : documentTypes[0])
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [approverIds, setApproverIds] = useState([])
   const [ccUserIds, setCcUserIds] = useState([])
   const [attachments, setAttachments] = useState([])
   const [pendingFiles, setPendingFiles] = useState([])
+  const isCorrection = documentType === '근태 정정'
+  const [correctionDate, setCorrectionDate] = useState(searchParams.get('date') || '')
+  const [correctionRecord, setCorrectionRecord] = useState(null)
+  const [correctionCheckIn, setCorrectionCheckIn] = useState('')
+  const [correctionCheckOut, setCorrectionCheckOut] = useState('')
+  const [correctionReason, setCorrectionReason] = useState('')
+  const [correctionApprovers, setCorrectionApprovers] = useState([])
+  const [correctionLoadError, setCorrectionLoadError] = useState('')
+  const [correctionApproversError, setCorrectionApproversError] = useState('')
+  const [correctionReload, setCorrectionReload] = useState(0)
+
+  useEffect(() => {
+    if (!isCorrection) return undefined
+    let active = true
+    getCorrectionApprovers().then((choices) => {
+      if (active) { setCorrectionApprovers(choices); setCorrectionApproversError('') }
+    }).catch((error) => {
+      if (active) setCorrectionApproversError(error.response?.data?.message ?? '정정 결재자 목록을 불러오지 못했습니다.')
+    })
+    return () => { active = false }
+  }, [isCorrection])
+
+  useEffect(() => {
+    if (!isCorrection || !correctionDate) return undefined
+    let active = true
+    getCorrectionRecord({ date: correctionDate }).then((record) => {
+      if (!active) return
+      setCorrectionRecord({ ...record, date: correctionDate })
+      setCorrectionCheckIn(record.checkInAt?.slice(0, 19) || `${correctionDate}T09:00:00`)
+      setCorrectionCheckOut(record.checkOutAt?.slice(0, 19) || '')
+      setCorrectionLoadError('')
+    }).catch((error) => {
+      if (active) setCorrectionLoadError(error.response?.data?.message ?? '기존 근태를 불러오지 못했습니다.')
+    })
+    return () => { active = false }
+  }, [isCorrection, correctionDate, correctionReload])
 
   // 임시저장 문서 조회 상태
   const [isDraftLoading, setIsDraftLoading] = useState(isEditing)
@@ -131,9 +170,10 @@ function NewApprovalPage() {
     }
   }, [])
 
-  const availableApprovers = directoryUsers.filter(
+  const availableApprovers = isCorrection ? correctionApprovers : directoryUsers.filter(
     (user) =>
-      user.userRole === 'ADMIN' || user.userRole === 'SUPER_ADMIN',
+      user.teamLeader ||
+      ['HR_MANAGER', 'SUPER_ADMIN'].includes(user.userRole),
   )
   const availableCcUsers = directoryUsers
   const attachmentSize = attachments.reduce((sum, file) => sum + file.fileSize, 0)
@@ -172,6 +212,11 @@ function NewApprovalPage() {
   }
 
   const toggleApprover = (userId) => {
+    if (isCorrection) {
+      setApproverIds((current) => current.includes(userId) ? [] : [userId])
+      setFeedback('')
+      return
+    }
     if (ccUserIds.includes(userId)) {
       setFeedback(
         '이미 참조자로 선택된 사용자입니다. 참조자 선택을 먼저 해제해 주세요.',
@@ -208,6 +253,27 @@ function NewApprovalPage() {
     event.preventDefault()
 
     if (isSaving || isSubmitting) {
+      return
+    }
+
+    if (isCorrection) {
+      if (!title.trim() || !correctionReason.trim() || !correctionCheckIn || approverIds.length !== 1
+          || !correctionRecord || correctionRecord.date !== correctionDate) {
+        setFeedback('제목, 대상 날짜의 기존 기록, 출근 시각, 정정 사유와 결재자 한 명을 확인해 주세요.')
+        return
+      }
+      try {
+        setIsSubmitting(true)
+        setFeedback('근태 정정 문서와 첨부파일을 상신하는 중입니다.')
+        const result = await submitCorrectionDocument(title.trim(), {
+          date: correctionDate, checkInAt: correctionCheckIn, checkOutAt: correctionCheckOut || null,
+          reason: correctionReason.trim(), approverId: approverIds[0],
+          expectedAttendanceId: correctionRecord.attendanceId, expectedVersion: correctionRecord.version,
+        }, pendingFiles)
+        navigate(`/approvals/${result.approvalId}`, { replace: true })
+      } catch (error) {
+        setFeedback(error.response?.data?.message ?? '근태 정정 문서를 상신하지 못했습니다.')
+      } finally { setIsSubmitting(false) }
       return
     }
 
@@ -257,6 +323,7 @@ function NewApprovalPage() {
   }
 
   const handleSaveDraft = async () => {
+    if (isCorrection) return
     if (!title.trim() || !content.trim()) {
       setFeedback('제목과 내용을 입력해 주세요.')
       return
@@ -375,11 +442,19 @@ function NewApprovalPage() {
               <label className="form-field">
                 <span>문서 종류</span>
                 <select
-                  onChange={(event) => setDocumentType(event.target.value)}
+                  disabled={isSaving || isSubmitting}
+                  onChange={(event) => {
+                    setDocumentType(event.target.value)
+                    setApproverIds([])
+                    setCcUserIds([])
+                    setCorrectionRecord(null)
+                    setCorrectionLoadError('')
+                    setFeedback('')
+                  }}
                   value={documentType}
                 >
                   {documentTypes.map((type) => (
-                    <option key={type} value={type}>
+                    <option key={type} value={type} disabled={isEditing && type === '근태 정정'}>
                       {type}
                     </option>
                   ))}
@@ -408,7 +483,26 @@ function NewApprovalPage() {
               </div>
             </div>
 
-            <label className="form-field">
+            {isCorrection ? <div className="attendance-correction-form">
+              <label className="form-field"><span>정정 대상 날짜</span>
+                <input type="date" required value={correctionDate} disabled={isSubmitting}
+                  onChange={(event) => { setCorrectionDate(event.target.value); setCorrectionRecord(null); setCorrectionLoadError('') }} />
+              </label>
+              {correctionLoadError && <p role="alert" className="compose-feedback">{correctionLoadError}</p>}
+              {correctionDate && <button type="button" className="compose-button compose-button--secondary" disabled={isSubmitting}
+                onClick={() => { setCorrectionRecord(null); setCorrectionLoadError(''); setCorrectionReload((value) => value + 1) }}>기존 기록 다시 조회</button>}
+              {correctionRecord?.date === correctionDate ? <>
+                <p>기존 출근: {correctionRecord.checkInAt?.replace('T', ' ').slice(0, 19) || '미기록'}<br />
+                  기존 퇴근: {correctionRecord.checkOutAt?.replace('T', ' ').slice(0, 19) || '미기록'}</p>
+                <label className="form-field"><span>변경할 출근 시각</span><input type="datetime-local" step="1" required
+                  value={correctionCheckIn} disabled={isSubmitting} onChange={(event) => setCorrectionCheckIn(event.target.value)} /></label>
+                <label className="form-field"><span>변경할 퇴근 시각 (공란은 미기록)</span><input type="datetime-local" step="1"
+                  value={correctionCheckOut} disabled={isSubmitting} onChange={(event) => setCorrectionCheckOut(event.target.value)} /></label>
+              </> : correctionDate && !correctionLoadError && <p className="compose-feedback">기존 근태를 불러오는 중입니다.</p>}
+              <label className="form-field"><span>정정 사유</span><textarea required maxLength={1000} value={correctionReason}
+                disabled={isSubmitting} onChange={(event) => setCorrectionReason(event.target.value)} placeholder="출퇴근 시각을 정정하는 사유를 입력하세요." />
+                <small>{correctionReason.length} / 1000</small></label>
+            </div> : <label className="form-field">
               <span className="sr-only">결재 내용</span>
               <textarea
                 onChange={(event) => setContent(event.target.value)}
@@ -416,7 +510,7 @@ function NewApprovalPage() {
                 value={content}
               />
               <small>{content.length.toLocaleString()}자</small>
-            </label>
+            </label>}
           </section>
 
           <section className="panel compose-panel attachment-compose-panel">
@@ -445,20 +539,20 @@ function NewApprovalPage() {
               <span className="compose-section-number">03</span>
               <div>
                 <h2>결재선</h2>
-                <p>승인 순서대로 결재자를 선택합니다.</p>
+                <p>{isCorrection ? '인사 담당자 또는 시스템 관리자 한 명을 선택합니다. 본인은 제외됩니다.' : '승인 순서대로 결재자를 선택합니다.'}</p>
               </div>
             </div>
 
-            {isDirectoryLoading && (
+            {!isCorrection && isDirectoryLoading && (
               <p className="compose-feedback">
                 결재자 후보를 불러오는 중입니다.
               </p>
             )}
-            {directoryLoadError && (
+            {!isCorrection && directoryLoadError && (
               <p className="compose-feedback">{directoryLoadError}</p>
             )}
-            {!isDirectoryLoading &&
-              !directoryLoadError &&
+            {isCorrection && correctionApproversError && <p className="compose-feedback">{correctionApproversError}</p>}
+            {(isCorrection ? !correctionApproversError : !isDirectoryLoading && !directoryLoadError) &&
               availableApprovers.length === 0 && (
                 <p className="compose-feedback">
                   선택할 수 있는 결재자가 없습니다.
@@ -477,6 +571,7 @@ function NewApprovalPage() {
                   >
                     <input
                       checked={selected}
+                      disabled={isSubmitting}
                       onChange={() => toggleApprover(approver.userId)}
                       type="checkbox"
                     />
@@ -487,10 +582,10 @@ function NewApprovalPage() {
                     </span>
                     <span className="selectable-user__copy">
                       <strong>{approver.userName}</strong>
-                      <small>
+                      {isCorrection ? <small>근태 정정 결재자</small> : <small>
                         {approver.departmentName ?? '부서 미배정'} ·{' '}
                         {approver.positionName ?? '직급 미배정'}
-                      </small>
+                      </small>}
                     </span>
                   </label>
                 )
@@ -498,7 +593,7 @@ function NewApprovalPage() {
             </div>
           </section>
 
-          <section className="panel compose-panel">
+          {!isCorrection && <section className="panel compose-panel">
             <div className="compose-section-heading">
               <span className="compose-section-number">04</span>
               <div>
@@ -523,7 +618,7 @@ function NewApprovalPage() {
                 </label>
               ))}
             </div>
-          </section>
+          </section>}
         </aside>
 
         <footer className="compose-actions">
@@ -547,12 +642,14 @@ function NewApprovalPage() {
           )}
           <button
             className="compose-button compose-button--secondary"
-            disabled={isSaving || isSubmitting || isDeleting}
+            disabled={isCorrection || isSaving || isSubmitting || isDeleting}
+            title={isCorrection ? '근태 정정은 임시저장 없이 바로 상신합니다.' : undefined}
             onClick={handleSaveDraft}
             type="button"
           >
             {isSaving ? '저장 중...' : '임시저장'}
           </button>
+          {isCorrection && <small>근태 정정은 바로 상신합니다.</small>}
           <button
             className="compose-button compose-button--primary"
             disabled={isSaving || isSubmitting || isDeleting}

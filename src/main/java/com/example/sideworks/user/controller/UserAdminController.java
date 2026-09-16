@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 @RequestMapping("/api/admin/users")
 @SecurityRequirement(name = "bearerAuth")
-@Tag(name = "관리자 사용자 관리", description = "ADMIN 및 SUPER_ADMIN용 사용자 생성, 조회 및 인사정보 관리 API")
+@Tag(name = "인사 사용자 관리", description = "HR_MANAGER 및 SUPER_ADMIN용 사용자 생성, 조회 및 인사정보 관리 API")
 public class UserAdminController {
 
     private final UserAdminService userAdminService;
@@ -96,7 +96,7 @@ public class UserAdminController {
     }
 
     @PatchMapping("/{userId}/role")
-    @Operation(summary = "사용자 역할 변경", description = "사용자에게 USER, ADMIN 등의 시스템 역할을 부여합니다.")
+    @Operation(summary = "사용자 역할 변경", description = "SUPER_ADMIN이 사용자에게 USER 또는 HR_MANAGER 역할을 부여합니다.")
     public ResponseEntity<Void> changeUserRole(@PathVariable Long userId, @RequestBody UserRoleUpdateRequest request) {
         userAdminService.changeUserRole(userId, request);
 

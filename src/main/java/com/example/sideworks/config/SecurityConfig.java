@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -47,7 +48,10 @@ public class SecurityConfig {
                         .requestMatchers("/swagger-ui/**").permitAll()
                         .requestMatchers("/swagger-ui.html").permitAll()
                         .requestMatchers("/v3/api-docs/**").permitAll()
-                        .requestMatchers("/api/admin/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/admin/users/*/role")
+                        .hasRole("SUPER_ADMIN")
+                        .requestMatchers("/api/admin/**")
+                        .hasAnyRole("SUPER_ADMIN", "HR_MANAGER")
                         // 그 외 API는 JwtAuthenticationFilter에서 인증된 요청만 접근하도록 제한한다.
                         .anyRequest().authenticated()
                 )

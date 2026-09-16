@@ -237,9 +237,7 @@ function DepartmentManagementPage() {
       (item) => item.departmentId === selectedDepartment?.parentDepartmentId,
     )?.departmentName ?? '최상위 부서'
   const managerCandidates = users.filter(
-    (user) =>
-      user.status === 'ACTIVE' &&
-      ['ADMIN', 'SUPER_ADMIN'].includes(user.userRole),
+    (user) => user.status === 'ACTIVE',
   )
 
   return (

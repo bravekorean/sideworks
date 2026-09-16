@@ -75,7 +75,7 @@ public class UserAdminService {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
 
-        if (request.getUserRole() == UserRole.SUPER_ADMIN) {
+        if (request.getUserRole() != UserRole.USER) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
 
@@ -127,7 +127,7 @@ public class UserAdminService {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
 
-        User user = userRepository.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        User user = findMutableUser(userId);
 
         if (request.getDepartmentId() != null) {
             Department department = departmentRepository.findById(request.getDepartmentId()).orElseThrow(() -> new BusinessException(ErrorCode.DEPARTMENT_NOT_FOUND));
@@ -146,8 +146,7 @@ public class UserAdminService {
     @Transactional
     public void updateUser(Long userId, UserUpdateRequest request) {
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        User user = findMutableUser(userId);
 
         user.updateBasicInfo(request.getUserName(), request.getUserEmail(), request.getUserPhone());
 
@@ -161,7 +160,7 @@ public class UserAdminService {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
 
-        User user = userRepository.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        User user = findMutableUser(userId);
 
         user.changeStatus(request.getStatus());
 
@@ -171,14 +170,26 @@ public class UserAdminService {
     @Transactional
     public void changeUserRole(Long userId, UserRoleUpdateRequest request) {
 
-        if (request.getUserRole() == null || request.getUserRole() == UserRole.SUPER_ADMIN) {
+        if (request.getUserRole() != UserRole.USER
+                && request.getUserRole() != UserRole.HR_MANAGER) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
 
-        User user = userRepository.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        User user = findMutableUser(userId);
 
         user.changeRole(request.getUserRole());
 
         log.info("Admin user role changed. userId={}, role={}", userId, request.getUserRole());
+    }
+
+    private User findMutableUser(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        if (user.getUserRole() == UserRole.SUPER_ADMIN) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        }
+
+        return user;
     }
 }

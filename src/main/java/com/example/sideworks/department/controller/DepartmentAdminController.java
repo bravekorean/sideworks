@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 @RequestMapping("/api/admin/departments")
 @SecurityRequirement(name = "bearerAuth")
-@Tag(name = "관리자 부서 관리", description = "ADMIN 및 SUPER_ADMIN용 부서 생성, 수정, 삭제 API")
+@Tag(name = "인사 부서 관리", description = "HR_MANAGER 및 SUPER_ADMIN용 부서 생성, 수정, 삭제 API")
 public class DepartmentAdminController {
 
     private final DepartmentAdminService departmentAdminService;

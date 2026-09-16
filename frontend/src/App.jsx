@@ -2,6 +2,10 @@ import { Navigate, Route, Routes } from 'react-router'
 import AppShell from './components/AppShell'
 import ApprovalDetailPage from './pages/ApprovalDetailPage'
 import ApprovalBoxPage from './pages/ApprovalBoxPage'
+import AttendanceCalendarPage from './pages/AttendanceCalendarPage'
+import AttendanceManagementPage from './pages/AttendanceManagementPage'
+import AttendanceCorrectionPage from './pages/AttendanceCorrectionPage'
+import WorkScheduleExceptionPage from './pages/WorkScheduleExceptionPage'
 import DashboardPage from './pages/DashboardPage'
 import DepartmentManagementPage from './pages/DepartmentManagementPage'
 import ErrorPage from './pages/ErrorPage'
@@ -21,6 +25,10 @@ function App() {
       <Route element={<AppShell />}>
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/organization" element={<OrganizationPage />} />
+        <Route path="/calendar" element={<AttendanceCalendarPage />} />
+        <Route path="/attendance-management" element={<AttendanceManagementPage />} />
+        <Route path="/attendance-corrections" element={<AttendanceCorrectionPage />} />
+        <Route path="/admin/work-schedule-exceptions" element={<WorkScheduleExceptionPage />} />
         <Route path="/approvals/new" element={<NewApprovalPage />} />
         <Route
           path="/approvals/:approvalId/edit"

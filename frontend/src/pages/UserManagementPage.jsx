@@ -10,10 +10,11 @@ import {
   getAdminUsers,
   updateAdminUser,
 } from '../api/adminApi'
+import { getMyProfile } from '../api/userApi'
 
 const roleLabels = {
   SUPER_ADMIN: '최고 관리자',
-  ADMIN: '관리자',
+  HR_MANAGER: '인사 관리자',
   USER: '일반 사용자',
 }
 
@@ -48,6 +49,7 @@ function UserManagementPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [currentUserRole, setCurrentUserRole] = useState('USER')
 
   const loadManagementData = async () => {
     try {
@@ -76,16 +78,18 @@ function UserManagementPage() {
 
     const loadInitialData = async () => {
       try {
-        const [userPage, departmentPage, positionPage] = await Promise.all([
+        const [userPage, departmentPage, positionPage, profile] = await Promise.all([
           getAdminUsers(0, 100),
           getAdminDepartments(0, 100),
           getAdminPositions(0, 100),
+          getMyProfile(),
         ])
         if (isActive) {
           setUsers(userPage.content)
           setTotalElements(userPage.totalElements)
           setDepartments(departmentPage.content)
           setPositions(positionPage.content)
+          setCurrentUserRole(profile.userRole)
         }
       } catch (error) {
         if (isActive) {
@@ -225,11 +229,12 @@ function UserManagementPage() {
 
   const activeCount = users.filter((user) => user.status === 'ACTIVE').length
   const adminCount = users.filter((user) =>
-    ['SUPER_ADMIN', 'ADMIN'].includes(user.userRole),
+    ['SUPER_ADMIN', 'HR_MANAGER'].includes(user.userRole),
   ).length
   const unassignedCount = users.filter(
     (user) => user.departmentId === null || user.positionId === null,
   ).length
+  const canChangeRoles = currentUserRole === 'SUPER_ADMIN'
 
   return (
     <div className="admin-page">
@@ -241,7 +246,7 @@ function UserManagementPage() {
       <section className="admin-summary-grid" aria-label="사용자 현황">
         <article className="admin-summary-card"><span>전체 사용자</span><strong>{totalElements}</strong><small>등록된 전체 계정</small></article>
         <article className="admin-summary-card"><span>재직 사용자</span><strong>{activeCount}</strong><small>현재 조회 범위 기준</small></article>
-        <article className="admin-summary-card"><span>관리 권한</span><strong>{adminCount}</strong><small>SUPER_ADMIN · ADMIN</small></article>
+        <article className="admin-summary-card"><span>관리 권한</span><strong>{adminCount}</strong><small>SUPER_ADMIN · HR_MANAGER</small></article>
         <article className="admin-summary-card admin-summary-card--warning"><span>인사 미배정</span><strong>{unassignedCount}</strong><small>부서 또는 직급 확인 필요</small></article>
       </section>
 
@@ -251,7 +256,7 @@ function UserManagementPage() {
         <div className="admin-toolbar">
           <label className="approval-search admin-user-search"><span aria-hidden="true">⌕</span><input onChange={(event) => setSearchQuery(event.target.value)} placeholder="이름, 로그인 ID, 사번, 부서 검색" type="search" value={searchQuery} /></label>
           <div className="admin-filter-group">
-            <select aria-label="역할 필터" onChange={(event) => setRoleFilter(event.target.value)} value={roleFilter}><option value="ALL">모든 역할</option><option value="SUPER_ADMIN">최고 관리자</option><option value="ADMIN">관리자</option><option value="USER">일반 사용자</option></select>
+            <select aria-label="역할 필터" onChange={(event) => setRoleFilter(event.target.value)} value={roleFilter}><option value="ALL">모든 역할</option><option value="SUPER_ADMIN">최고 관리자</option><option value="HR_MANAGER">인사 관리자</option><option value="USER">일반 사용자</option></select>
             <select aria-label="상태 필터" onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}><option value="ALL">모든 상태</option><option value="ACTIVE">재직</option><option value="INACTIVE">비활성</option><option value="DELETED">삭제</option></select>
             <select aria-label="배정 상태 필터" onChange={(event) => setAssignmentFilter(event.target.value)} value={assignmentFilter}><option value="ALL">전체 배정 상태</option><option value="ASSIGNED">배정 완료</option><option value="UNASSIGNED">인사 미배정</option></select>
           </div>
@@ -281,7 +286,7 @@ function UserManagementPage() {
             <div className="user-detail-section"><h3>계정 정보</h3><dl className="user-detail-list"><div><dt>이메일</dt><dd>{selectedUser.userEmail ?? '-'}</dd></div><div><dt>연락처</dt><dd>{selectedUser.userPhone ?? '-'}</dd></div><div><dt>직렬</dt><dd>{jobFamilyLabels[selectedUser.jobFamily] ?? '기존 계정'}</dd></div><div><dt>입사일</dt><dd>{selectedUser.hireDate ?? '-'}</dd></div><div><dt>권한</dt><dd>{roleLabels[selectedUser.userRole]}</dd></div><div><dt>상태</dt><dd>{statusLabels[selectedUser.status]}</dd></div></dl></div>
             <div className="user-detail-section"><h3>인사 배정</h3><div className="assignment-card"><div><span>부서</span><strong>{selectedUser.departmentName ?? '미배정'}</strong></div><div><span>직급</span><strong>{selectedUser.positionName ?? '미배정'}</strong></div></div></div>
             <div className="user-detail-section"><h3>시스템 기록</h3><dl className="user-detail-list"><div><dt>생성일</dt><dd>{formatDateTime(selectedUser.createdAt)}</dd></div><div><dt>수정일</dt><dd>{formatDateTime(selectedUser.updatedAt)}</dd></div></dl></div>
-            <footer className="user-detail-actions"><button disabled={selectedUser.userRole === 'SUPER_ADMIN'} onClick={() => { setFeedback(''); setDialogMode('edit') }} type="button">상태·배정 변경</button><button className="admin-primary-button" onClick={() => { setFeedback(''); setDialogMode('edit') }} type="button">사용자 수정</button></footer>
+            <footer className="user-detail-actions"><button disabled={selectedUser.userRole === 'SUPER_ADMIN'} onClick={() => { setFeedback(''); setDialogMode('edit') }} type="button">상태·배정 변경</button><button className="admin-primary-button" disabled={selectedUser.userRole === 'SUPER_ADMIN'} onClick={() => { setFeedback(''); setDialogMode('edit') }} type="button">사용자 수정</button></footer>
           </>}
         </aside>
       </div>}
@@ -295,7 +300,7 @@ function UserManagementPage() {
           <label className="form-field"><span>이메일</span><input name="userEmail" placeholder="name@example.com" type="email" /></label><label className="form-field"><span>연락처</span><input name="userPhone" placeholder="010-0000-0000" /></label>
           <label className="form-field"><span>부서</span><select defaultValue="" name="departmentId"><option value="">미배정</option>{departments.filter((item) => item.status === 'ACTIVE').map((item) => <option key={item.departmentId} value={item.departmentId}>{item.departmentName}</option>)}</select></label>
           <label className="form-field"><span>직급</span><select defaultValue="" name="positionId"><option value="">미배정</option>{positions.map((item) => <option key={item.positionId} value={item.positionId}>{item.positionName}</option>)}</select></label>
-          <label className="form-field"><span>역할</span><select defaultValue="USER" name="userRole"><option value="USER">일반 사용자</option><option value="ADMIN">관리자</option></select></label>
+          <label className="form-field"><span>역할</span><select defaultValue="USER" name="userRole"><option value="USER">일반 사용자</option></select><small>역할 승격은 계정 생성 후 최고 관리자만 수행합니다.</small></label>
         </div>
         <p aria-live="polite" className="create-user-feedback">{feedback}</p><footer className="decision-dialog__actions"><button disabled={isSubmitting} onClick={() => setDialogMode(null)} type="button">취소</button><button className="dialog-confirm" disabled={isSubmitting} type="submit">{isSubmitting ? '생성 중...' : '생성하기'}</button></footer>
       </form></div>}
@@ -307,7 +312,7 @@ function UserManagementPage() {
           <label className="form-field"><span>이메일</span><input defaultValue={selectedUser.userEmail ?? ''} name="userEmail" type="email" /></label><label className="form-field"><span>연락처</span><input defaultValue={selectedUser.userPhone ?? ''} name="userPhone" /></label>
           <label className="form-field"><span>부서</span><select defaultValue={selectedUser.departmentId ?? ''} name="departmentId">{selectedUser.departmentId === null && <option value="">미배정</option>}{departments.filter((item) => item.status === 'ACTIVE').map((item) => <option key={item.departmentId} value={item.departmentId}>{item.departmentName}</option>)}</select></label>
           <label className="form-field"><span>직급</span><select defaultValue={selectedUser.positionId ?? ''} name="positionId">{selectedUser.positionId === null && <option value="">미배정</option>}{positions.map((item) => <option key={item.positionId} value={item.positionId}>{item.positionName}</option>)}</select></label>
-          <label className="form-field"><span>역할</span><select defaultValue={selectedUser.userRole} disabled={selectedUser.userRole === 'SUPER_ADMIN'} name="userRole">{selectedUser.userRole === 'SUPER_ADMIN' && <option value="SUPER_ADMIN">최고 관리자</option>}<option value="USER">일반 사용자</option><option value="ADMIN">관리자</option></select></label>
+          <label className="form-field"><span>역할</span><select defaultValue={selectedUser.userRole} disabled={!canChangeRoles || selectedUser.userRole === 'SUPER_ADMIN'} name="userRole">{selectedUser.userRole === 'SUPER_ADMIN' && <option value="SUPER_ADMIN">최고 관리자</option>}<option value="USER">일반 사용자</option><option value="HR_MANAGER">인사 관리자</option></select></label>
           <label className="form-field"><span>상태</span><select defaultValue={selectedUser.status} disabled={selectedUser.userRole === 'SUPER_ADMIN'} name="status"><option value="ACTIVE">재직</option><option value="INACTIVE">비활성</option><option value="DELETED">삭제</option></select></label>
         </div>
         <p aria-live="polite" className="create-user-feedback">{feedback}</p><footer className="decision-dialog__actions"><button disabled={isSubmitting} onClick={() => setDialogMode(null)} type="button">취소</button><button className="dialog-confirm" disabled={isSubmitting} type="submit">{isSubmitting ? '저장 중...' : '저장하기'}</button></footer>

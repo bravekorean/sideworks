@@ -9,7 +9,6 @@ import com.example.sideworks.department.dto.DepartmentManagerUpdateRequest;
 import com.example.sideworks.department.entity.Department;
 import com.example.sideworks.department.entity.DepartmentStatus;
 import com.example.sideworks.user.entity.User;
-import com.example.sideworks.user.entity.UserRole;
 import com.example.sideworks.user.entity.UserStatus;
 import com.example.sideworks.department.repository.DepartmentRepository;
 import com.example.sideworks.user.repository.UserRepository;
@@ -110,10 +109,6 @@ public class DepartmentAdminService {
         }
 
         if (manager.getStatus() != UserStatus.ACTIVE) {
-            throw new BusinessException(ErrorCode.INVALID_REQUEST);
-        }
-
-        if (manager.getUserRole() != UserRole.ADMIN) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
 

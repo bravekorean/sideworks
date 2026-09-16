@@ -72,7 +72,8 @@ class ApprovalServiceDetailTest {
                 attachmentRepository,
                 fileStorage,
                 submissionValidator,
-                submissionFactory
+                submissionFactory,
+                org.mockito.Mockito.mock(com.example.sideworks.attendance.service.AttendanceCorrectionService.class)
         );
     }
 
@@ -122,8 +123,8 @@ class ApprovalServiceDetailTest {
     }
 
     @Test
-    void 일반_관리자도_비참여_문서를_조회할_수_없다() {
-        assertNonParticipantCannotRead(UserRole.ADMIN);
+    void 인사_관리자도_비참여_문서를_조회할_수_없다() {
+        assertNonParticipantCannotRead(UserRole.HR_MANAGER);
     }
 
     private void assertNonParticipantCannotRead(UserRole role) {

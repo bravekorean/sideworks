@@ -10,7 +10,7 @@ import {
 
 const roleLabels = {
   SUPER_ADMIN: '최고 관리자',
-  ADMIN: '관리자',
+  HR_MANAGER: '인사 관리자',
   USER: '일반 사용자',
 }
 

@@ -91,7 +91,7 @@ function DashboardPage() {
     day: 'numeric',
     weekday: 'long',
   }).format(new Date())
-  const canManageUsers = ['ADMIN', 'SUPER_ADMIN'].includes(profile?.userRole)
+  const canManageUsers = ['HR_MANAGER', 'SUPER_ADMIN'].includes(profile?.userRole)
 
   return (
     <div className="dashboard-page">

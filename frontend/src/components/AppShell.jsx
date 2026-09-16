@@ -2,13 +2,21 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router'
 import { logout } from '../api/authApi'
 import { getMyProfile } from '../api/userApi'
+import { getAttendanceManagementScope } from '../api/attendanceManagementApi'
 
 const navigationGroups = [
+  {
+    label: '근태 관리',
+    attendanceManagement: true,
+    items: [{ id: 'attendance-management', label: '직원 근태 조회', icon: 'calendar', path: '/attendance-management' }],
+  },
   {
     label: 'WORKSPACE',
     items: [
       { id: 'dashboard', label: '대시보드', icon: 'home', path: '/dashboard' },
       { id: 'organization', label: '조직도', icon: 'building', path: '/organization' },
+      { id: 'calendar', label: '근태 캘린더', icon: 'calendar', path: '/calendar' },
+      { id: 'correction', label: '근태 기록 · 이력', icon: 'file', path: '/attendance-corrections' },
     ],
   },
   {
@@ -24,18 +32,19 @@ const navigationGroups = [
   },
   {
     label: '관리',
-    role: 'ADMIN',
+    role: 'HR_MANAGER',
     items: [
       { id: 'users', label: '사용자 관리', icon: 'users', path: '/admin/users' },
       { id: 'departments', label: '부서 관리', icon: 'building', path: '/admin/departments' },
       { id: 'positions', label: '직급 관리', icon: 'badge', path: '/admin/positions' },
+      { id: 'schedule-exceptions', label: '휴무일 관리', icon: 'calendar', path: '/admin/work-schedule-exceptions' },
     ],
   },
 ]
 
 const roleLevel = {
   USER: 0,
-  ADMIN: 1,
+  HR_MANAGER: 1,
   SUPER_ADMIN: 2,
 }
 
@@ -49,6 +58,7 @@ const iconPaths = {
   eye: 'M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Zm9.5 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
   users: 'M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm9-1a3 3 0 0 1 0 6m4 5v-2a4 4 0 0 0-3-3.87',
   building: 'M4 21V5l8-3 8 3v16M8 8h1m3 0h1m3 0h1M8 12h1m3 0h1m3 0h1M8 16h1m3 0h1m3 0h1M2 21h20',
+  calendar: 'M6 2v4m12-4v4M3 9h18M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2Zm3 9h3m2 0h3m-8 4h3m2 0h3',
   badge: 'M12 3 8 5v5c0 3 1.8 5.8 4 7 2.2-1.2 4-4 4-7V5l-4-2Zm0 14v4m-3 0h6',
   search: 'm20 20-4.5-4.5m2.5-4.5a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z',
   bell: 'M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Zm-8 12h4',
@@ -75,6 +85,7 @@ function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const [currentUser, setCurrentUser] = useState(null)
+  const [canViewAttendance, setCanViewAttendance] = useState(false)
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
   const globalSearchInputRef = useRef(null)
   const navigate = useNavigate()
@@ -89,6 +100,8 @@ function AppShell() {
         if (isActive) {
           setCurrentUser(profile)
         }
+        const scope = await getAttendanceManagementScope().catch(() => null)
+        if (isActive) setCanViewAttendance(Boolean(scope && (scope.allDepartments || scope.departments.length)))
       } catch {
         if (isActive) {
           sessionStorage.removeItem('accessToken')
@@ -137,8 +150,8 @@ function AppShell() {
 
   const visibleNavigationGroups = navigationGroups.filter(
     (group) =>
-      !group.role ||
-      roleLevel[currentUser?.userRole] >= roleLevel[group.role],
+      group.attendanceManagement ? canViewAttendance : (!group.role ||
+      roleLevel[currentUser?.userRole] >= roleLevel[group.role]),
   )
 
   const userName = currentUser?.userName ?? '사용자'

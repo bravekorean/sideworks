@@ -99,7 +99,15 @@ public class ApprovalSubmissionValidator {
 
     private boolean hasApproverRole(User approver) {
         UserRole role = approver.getUserRole();
-        return role == UserRole.ADMIN || role == UserRole.SUPER_ADMIN;
+        boolean hasSystemApproverRole = role == UserRole.HR_MANAGER
+                || role == UserRole.SUPER_ADMIN;
+        boolean isTeamLeader = approver.getDepartment() != null
+                && Objects.equals(
+                approver.getDepartment().getManagerUserId(),
+                approver.getUserId()
+        );
+
+        return hasSystemApproverRole || isTeamLeader;
     }
 
     private void validateCcUser(Long writerId, User ccUser) {

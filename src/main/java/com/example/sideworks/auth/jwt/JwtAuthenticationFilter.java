@@ -32,7 +32,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (token != null && jwtTokenProvider.validateToken(token)) {
             Long userId = jwtTokenProvider.getUserId(token);
             String loginId = jwtTokenProvider.getLoginId(token);
-            UserRole userRole = jwtTokenProvider.getUserRole(token);
+            UserRole userRole;
+            try {
+                userRole = jwtTokenProvider.getUserRole(token);
+            } catch (IllegalArgumentException exception) {
+                // 역할 이관 전에 발급된 토큰은 인증을 거절하고 재로그인하도록 한다.
+                SecurityContextHolder.clearContext();
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                return;
+            }
 
             // Spring Security 권한 규칙(hasRole 등)과 맞추기 위해 ROLE_ 접두어를 붙인다.
             UsernamePasswordAuthenticationToken authentication = UsernamePasswordAuthenticationToken (userRole, loginId, userId);

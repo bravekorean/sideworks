@@ -1,9 +1,13 @@
 package com.example.sideworks.user.service;
 
 import com.example.sideworks.department.repository.DepartmentRepository;
+import com.example.sideworks.common.exception.BusinessException;
+import com.example.sideworks.common.exception.ErrorCode;
 import com.example.sideworks.position.repository.PositionRepository;
 import com.example.sideworks.user.dto.UserCreateRequest;
 import com.example.sideworks.user.dto.UserCreateResponse;
+import com.example.sideworks.user.dto.UserRoleUpdateRequest;
+import com.example.sideworks.user.dto.UserStatusUpdateRequest;
 import com.example.sideworks.user.dto.UserUpdateRequest;
 import com.example.sideworks.user.entity.JobFamily;
 import com.example.sideworks.user.entity.User;
@@ -23,6 +27,7 @@ import java.time.LocalDate;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -108,6 +113,44 @@ class UserAdminServiceTest {
         assertThat(user.getEmployeeNo()).isEqualTo("TC-26001");
     }
 
+    @Test
+    void 신규_계정은_USER_역할로만_생성할_수_있다() {
+        UserCreateRequest request = createRequest();
+        ReflectionTestUtils.setField(request, "userRole", UserRole.HR_MANAGER);
+
+        assertThatThrownBy(() -> userAdminService.createUser(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INVALID_REQUEST);
+    }
+
+    @Test
+    void 역할_변경은_USER와_HR_MANAGER만_허용한다() {
+        User user = createUser(UserRole.USER);
+        UserRoleUpdateRequest request = new UserRoleUpdateRequest();
+        ReflectionTestUtils.setField(request, "userRole", UserRole.HR_MANAGER);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+        userAdminService.changeUserRole(1L, request);
+
+        assertThat(user.getUserRole()).isEqualTo(UserRole.HR_MANAGER);
+    }
+
+    @Test
+    void SUPER_ADMIN_계정은_관리자_사용자_API로_변경할_수_없다() {
+        User superAdmin = createUser(UserRole.SUPER_ADMIN);
+        UserStatusUpdateRequest request = new UserStatusUpdateRequest();
+        ReflectionTestUtils.setField(request, "status", UserStatus.INACTIVE);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(superAdmin));
+
+        assertThatThrownBy(() -> userAdminService.changeUserStatus(1L, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INVALID_REQUEST);
+
+        assertThat(superAdmin.getStatus()).isEqualTo(UserStatus.ACTIVE);
+    }
+
     private UserCreateRequest createRequest() {
         UserCreateRequest request = new UserCreateRequest();
         ReflectionTestUtils.setField(request, "loginId", "new-user");
@@ -118,5 +161,22 @@ class UserAdminServiceTest {
         ReflectionTestUtils.setField(request, "userRole", UserRole.USER);
         ReflectionTestUtils.setField(request, "status", UserStatus.ACTIVE);
         return request;
+    }
+
+    private User createUser(UserRole role) {
+        return User.create(
+                "user",
+                "encoded-password",
+                "사용자",
+                null,
+                null,
+                "TC-26001",
+                JobFamily.TECHNICAL,
+                LocalDate.of(2026, 8, 31),
+                null,
+                null,
+                role,
+                UserStatus.ACTIVE
+        );
     }
 }

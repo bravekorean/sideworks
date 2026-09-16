@@ -14,6 +14,7 @@ public class UserDirectoryResponse {
     private String departmentName;
     private String positionName;
     private UserRole userRole;
+    private boolean teamLeader;
 
 
     public static UserDirectoryResponse from (User user)  {
@@ -26,7 +27,9 @@ public class UserDirectoryResponse {
                 user.getPosition() == null
                         ? null
                         : user.getPosition().getPositionName(),
-                user.getUserRole()
+                user.getUserRole(),
+                user.getDepartment() != null
+                        && user.getUserId().equals(user.getDepartment().getManagerUserId())
         );
     }
 }

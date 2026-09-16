@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 @RequiredArgsConstructor
 @RequestMapping("/api/admin/positions")
 @SecurityRequirement(name = "bearerAuth")
-@Tag(name = "관리자 직급 관리", description = "ADMIN 및 SUPER_ADMIN용 직급 생성, 수정, 삭제 API")
+@Tag(name = "인사 직급 관리", description = "HR_MANAGER 및 SUPER_ADMIN용 직급 생성, 수정, 삭제 API")
 public class PositionAdminController {
 
     private final PositionAdminService positionAdminService;

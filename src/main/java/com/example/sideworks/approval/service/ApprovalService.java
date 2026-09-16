@@ -61,6 +61,7 @@ public class ApprovalService {
     private final FileStorage fileStorage;
     private final ApprovalSubmissionValidator submissionValidator;
     private final ApprovalSubmissionFactory submissionFactory;
+    private final com.example.sideworks.attendance.service.AttendanceCorrectionService attendanceCorrections;
 
     @Transactional
     public Long createDraft(String loginId, ApprovalDraftRequest request) {
@@ -142,6 +143,7 @@ public class ApprovalService {
         String comment = normalizeDecisionComment(request, false);
         LocalDateTime processedAt = LocalDateTime.now();
 
+        attendanceCorrections.onDecision(approval, actor, true);
         currentLine.approve(comment, processedAt);
         advanceApproval(approval, currentLine, processedAt);
         saveDecisionHistory(approval, currentLine, actor, ApprovalActionType.APPROVED, comment);
@@ -157,6 +159,7 @@ public class ApprovalService {
         String comment = normalizeDecisionComment(request, true);
         LocalDateTime processedAt = LocalDateTime.now();
 
+        attendanceCorrections.onDecision(approval, actor, false);
         currentLine.reject(comment, processedAt);
         approval.reject(processedAt);
         saveDecisionHistory(approval, currentLine, actor, ApprovalActionType.REJECTED, comment);
@@ -170,6 +173,7 @@ public class ApprovalService {
         validateCancellation(approval, actor);
         LocalDateTime canceledAt = LocalDateTime.now();
 
+        attendanceCorrections.onCancel(approvalId);
         approval.cancel(canceledAt);
         approvalHistoryRepository.save(ApprovalHistory.create(
                 approval,
