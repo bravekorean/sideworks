@@ -56,6 +56,7 @@ frontend/.env.*
 
 # local agent instructions
 AGENTS.md
+.codex/agents/
 
 # local project documentation
 docs/*
