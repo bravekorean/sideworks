@@ -9,6 +9,7 @@ import com.example.sideworks.approval.dto.ApprovalListResponse;
 import com.example.sideworks.approval.entity.ApprovalLineStatus;
 import com.example.sideworks.approval.entity.ApprovalStatus;
 import com.example.sideworks.user.entity.QUser;
+import com.example.sideworks.user.entity.UserStatus;
 import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.ConstructorExpression;
 import com.querydsl.core.types.Projections;
@@ -23,6 +24,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.example.sideworks.approval.entity.QApproval.approval;
+import static com.example.sideworks.approval.entity.QApprovalDocumentType.approvalDocumentType;
 import static com.example.sideworks.approval.entity.QApprovalCc.approvalCc;
 import static com.example.sideworks.approval.entity.QApprovalHistory.approvalHistory;
 import static com.example.sideworks.approval.entity.QApprovalLine.approvalLine;
@@ -31,6 +33,34 @@ import static com.example.sideworks.approval.entity.QApprovalLine.approvalLine;
 public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
 
     private final JPAQueryFactory queryFactory;
+
+    @Override
+    public Page<ApprovalListResponse> findForManagement(String keyword, ApprovalStatus status,
+                                                       boolean blockedOnly, Pageable pageable) {
+        BooleanExpression filter = approval.submittedAt.isNotNull()
+                .and(approval.approvalStatus.ne(ApprovalStatus.DRAFT));
+        if (blockedOnly) filter = filter.and(hasInactiveCurrentApprover());
+        List<ApprovalListResponse> content = queryFactory.select(approvalListProjection())
+                .from(approval).join(approval.writer)
+                .where(filter, containsKeyword(keyword), hasStatus(status))
+                .orderBy(approval.submittedAt.desc(), approval.approvalId.desc())
+                .offset(pageable.getOffset()).limit(pageable.getPageSize()).fetch();
+        Long total = queryFactory.select(approval.count()).from(approval).join(approval.writer)
+                .where(filter, containsKeyword(keyword), hasStatus(status)).fetchOne();
+        return toPage(content, pageable, total);
+    }
+
+    private BooleanExpression hasInactiveCurrentApprover() {
+        QUser currentApprover = new QUser("managementCurrentApprover");
+        // 위임된 단계도 실제 담당자 기준으로 판별하고, 미래 단계의 비활성 계정은 제외한다.
+        return approval.approvalStatus.eq(ApprovalStatus.IN_PROGRESS).and(JPAExpressions.selectOne()
+                .from(approvalLine).join(approvalLine.approver, currentApprover)
+                .where(approvalLine.approval.approvalId.eq(approval.approvalId),
+                        approvalLine.approvalStep.eq(approval.currentStep),
+                        approvalLine.approvalStatus.eq(ApprovalLineStatus.PENDING),
+                        currentApprover.status.ne(UserStatus.ACTIVE))
+                .exists());
+    }
 
     @Override
     public Page<ApprovalListResponse> findDraftsByWriterId(Long writerId, String keyword, Pageable pageable) {
@@ -291,6 +321,7 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
                 .select(approvalDetailHeaderProjection())
                 .from(approval)
                 .join(approval.writer)
+                .leftJoin(approval.documentType, approvalDocumentType)
                 .where(approval.approvalId.eq(approvalId))
                 .fetchOne();
 
@@ -306,6 +337,7 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
                 .select(approvalDetailHeaderProjection())
                 .from(approval)
                 .join(approval.writer)
+                .leftJoin(approval.documentType, approvalDocumentType)
                 .where(
                         approval.approvalId.eq(approvalId),
                         accessibleByUser(approvalId, userId)
@@ -317,12 +349,16 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
 
     @Override
     public List<ApprovalLineResponse> findDetailLinesByApprovalId(Long approvalId) {
+        QUser originalApprover = new QUser("originalApprover");
         return queryFactory
                 .select(Projections.constructor(
                         ApprovalLineResponse.class,
                         approvalLine.approvalLineId,
                         approvalLine.approver.userId,
                         approvalLine.approver.userName,
+                        approvalLine.approver.status,
+                        originalApprover.userId,
+                        originalApprover.userName,
                         approvalLine.approvalStep,
                         approvalLine.approvalStatus,
                         approvalLine.approvalComment,
@@ -330,6 +366,7 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
                 ))
                 .from(approvalLine)
                 .join(approvalLine.approver)
+                .leftJoin(approvalLine.originalApprover, originalApprover)
                 .where(approvalLine.approval.approvalId.eq(approvalId))
                 .orderBy(
                         approvalLine.approvalStep.asc(),
@@ -504,7 +541,10 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
                 approval.createdAt,
                 approval.updatedAt,
                 approval.submittedAt,
-                approval.completedAt
+                approval.completedAt,
+                approvalDocumentType.approvalDocumentTypeId,
+                approvalDocumentType.typeName,
+                approvalDocumentType.behaviorType
         );
     }
 

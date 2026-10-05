@@ -59,6 +59,16 @@ async function refreshAccessToken() {
   return newAccessToken
 }
 
+// fetch 스트림은 Axios 인터셉터를 통과하지 않으므로 같은 재발급 경로를 재사용한다.
+export async function getValidAccessToken(forceRefresh = false) {
+  const accessToken = sessionStorage.getItem('accessToken')
+  if (!forceRefresh && accessToken && !isAccessTokenExpired(accessToken)) return accessToken
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken().finally(() => { refreshPromise = null })
+  }
+  return refreshPromise
+}
+
 apiClient.interceptors.request.use(
   (config) => {
     const accessToken = sessionStorage.getItem('accessToken')

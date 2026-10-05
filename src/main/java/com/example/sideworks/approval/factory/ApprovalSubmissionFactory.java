@@ -6,19 +6,24 @@ import com.example.sideworks.approval.entity.ApprovalCc;
 import com.example.sideworks.approval.entity.ApprovalHistory;
 import com.example.sideworks.approval.entity.ApprovalLine;
 import com.example.sideworks.approval.entity.ApprovalLineStatus;
+import com.example.sideworks.approval.service.ApprovalDelegationService;
 import com.example.sideworks.user.entity.User;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
 
 @Component
+@RequiredArgsConstructor
 public class ApprovalSubmissionFactory {
+
+    private final ApprovalDelegationService delegations;
 
     private static final int SUBMISSION_ACTION_STEP = 0;
     private static final int FIRST_APPROVAL_STEP = 1;
 
-    public List<ApprovalLine> createLines(Approval approval, List<User> approvers) {
+    public List<ApprovalLine> createLines(Approval approval, List<User> approvers, List<User> ccUsers) {
         List<ApprovalLine> approvalLines = new ArrayList<>();
 
         for (int index = 0; index < approvers.size(); index++) {
@@ -31,6 +36,8 @@ public class ApprovalSubmissionFactory {
                     )
             );
         }
+
+        delegations.assignFirstStep(approval, approvalLines, ccUsers);
 
         return approvalLines;
     }

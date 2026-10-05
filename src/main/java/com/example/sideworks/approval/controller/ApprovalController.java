@@ -7,6 +7,7 @@ import com.example.sideworks.approval.dto.ApprovalDecisionRequest;
 import com.example.sideworks.approval.dto.ApprovalDraftRequest;
 import com.example.sideworks.approval.dto.ApprovalListResponse;
 import com.example.sideworks.approval.dto.ApprovalSubmitRequest;
+import com.example.sideworks.approval.dto.ApprovalTerminateRequest;
 import com.example.sideworks.approval.entity.ApprovalStatus;
 import com.example.sideworks.approval.service.ApprovalService;
 import com.example.sideworks.common.dto.PageResponse;
@@ -89,6 +90,15 @@ public class ApprovalController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/{approvalId}/terminate")
+    @Operation(summary = "결재 강제 종료", description = "현재 결재자가 비활성인 진행 중 문서를 시스템 관리자가 사유와 함께 종료합니다.")
+    public ResponseEntity<Void> terminateApproval(@PathVariable("approvalId") Long approvalId,
+                                                   Authentication authentication,
+                                                   @RequestBody ApprovalTerminateRequest request) {
+        approvalService.terminateApproval(approvalId, authentication.getName(), request);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/{approvalId}")
     @Operation(summary = "결재 문서 상세 조회", description = "작성자, 결재자, 참조자 또는 권한이 있는 관리자가 문서 내용과 결재선 및 처리 이력을 조회합니다.")
     public ResponseEntity<ApprovalDetailResponse> getApprovalDetail(@PathVariable("approvalId") Long approvalId, Authentication authentication) {
@@ -98,6 +108,18 @@ public class ApprovalController {
         );
 
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/manage")
+    @Operation(summary = "시스템 관리자 결재 관리", description = "상신된 전체 문서를 조회합니다. blockedOnly=true이면 현재 대기 단계의 실제 결재자가 비활성인 문서만 조회합니다. SUPER_ADMIN 전용입니다.")
+    public ResponseEntity<PageResponse<ApprovalListResponse>> getManagedApprovals(
+            Authentication authentication,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) ApprovalStatus status,
+            @RequestParam(defaultValue = "false") boolean blockedOnly,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return ResponseEntity.ok(PageResponse.from(approvalService.getManagedApprovals(
+                authentication.getName(), keyword, status, blockedOnly, pageable)));
     }
 
     @GetMapping("/drafts")

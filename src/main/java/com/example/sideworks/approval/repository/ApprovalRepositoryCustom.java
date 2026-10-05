@@ -15,6 +15,8 @@ import java.util.Optional;
 
 public interface ApprovalRepositoryCustom {
 
+    Page<ApprovalListResponse> findForManagement(String keyword, ApprovalStatus status, boolean blockedOnly, Pageable pageable);
+
     Page<ApprovalListResponse> findDraftsByWriterId(Long writerId, String keyword, Pageable pageable);
 
     Page<ApprovalListResponse> findSentByWriterId(Long writerId, String keyword, ApprovalStatus status, Pageable pageable);

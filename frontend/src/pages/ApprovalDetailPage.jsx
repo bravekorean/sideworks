@@ -6,6 +6,7 @@ import {
   downloadApprovalAttachment,
   getApprovalDetail,
   rejectApproval,
+  terminateApproval,
 } from '../api/approvalApi'
 import { getMyProfile } from '../api/userApi'
 
@@ -15,6 +16,7 @@ const approvalStatusLabels = {
   APPROVED: '승인 완료',
   REJECTED: '반려',
   CANCELED: '상신 취소',
+  TERMINATED: '관리자 강제 종료',
 }
 
 const lineStatusLabels = {
@@ -29,6 +31,7 @@ const actionTypeLabels = {
   APPROVED: '승인',
   REJECTED: '반려',
   CANCELED: '상신 취소',
+  TERMINATED: '강제 종료',
 }
 
 function getDefaultBackNavigation(approval) {
@@ -63,6 +66,7 @@ function ApprovalDetailPage() {
   const location = useLocation()
   const [approval, setApproval] = useState(null)
   const [currentUserId, setCurrentUserId] = useState(null)
+  const [currentUserRole, setCurrentUserRole] = useState(null)
   const [isDetailLoading, setIsDetailLoading] = useState(true)
   const [detailLoadError, setDetailLoadError] = useState('')
   const [decisionType, setDecisionType] = useState(null)
@@ -86,6 +90,7 @@ function ApprovalDetailPage() {
         if (isActive) {
           setApproval(approvalResponse)
           setCurrentUserId(profileResponse.userId)
+          setCurrentUserRole(profileResponse.userRole)
         }
       } catch (error) {
         if (isActive) {
@@ -121,8 +126,8 @@ function ApprovalDetailPage() {
     event.preventDefault()
 
     const normalizedComment = decisionComment.trim()
-    if (decisionType === 'REJECTED' && !normalizedComment) {
-      setDecisionFeedback('반려 사유를 입력해 주세요.')
+    if ((decisionType === 'REJECTED' || decisionType === 'TERMINATED') && !normalizedComment) {
+      setDecisionFeedback(decisionType === 'TERMINATED' ? '강제 종료 사유를 입력해 주세요.' : '반려 사유를 입력해 주세요.')
       return
     }
 
@@ -134,6 +139,8 @@ function ApprovalDetailPage() {
         await approveApproval(approvalId, normalizedComment)
       } else if (decisionType === 'REJECTED') {
         await rejectApproval(approvalId, normalizedComment)
+      } else if (decisionType === 'TERMINATED') {
+        await terminateApproval(approvalId, normalizedComment)
       } else {
         await cancelApproval(approvalId)
       }
@@ -145,7 +152,9 @@ function ApprovalDetailPage() {
           ? '결재 문서를 승인했습니다.'
           : decisionType === 'REJECTED'
             ? '결재 문서를 반려했습니다.'
-            : '결재 문서 상신을 취소했습니다.',
+            : decisionType === 'TERMINATED'
+              ? '결재 문서를 강제 종료했습니다.'
+              : '결재 문서 상신을 취소했습니다.',
       )
       setDecisionType(null)
       setDecisionComment('')
@@ -194,6 +203,11 @@ function ApprovalDetailPage() {
   const canCancel =
     approval.approvalStatus === 'IN_PROGRESS' &&
     approval.writerId === currentUserId
+  const canTerminate =
+    approval.approvalStatus === 'IN_PROGRESS' &&
+    currentUserRole === 'SUPER_ADMIN' &&
+    Boolean(currentPendingLine) &&
+    currentPendingLine?.approverStatus !== 'ACTIVE'
 
   const handleAttachmentDownload = async (attachment) => {
     try {
@@ -242,8 +256,20 @@ function ApprovalDetailPage() {
           </div>
         </div>
 
-        {(canDecide || canCancel) && (
+        {(canDecide || canCancel || canTerminate) && (
           <div className="detail-actions">
+            {canTerminate && (
+              <button
+                className="decision-button decision-button--reject"
+                onClick={() => {
+                  setDecisionFeedback('')
+                  setDecisionType('TERMINATED')
+                }}
+                type="button"
+              >
+                강제 종료
+              </button>
+            )}
             {canCancel && (
               <button
                 className="decision-button decision-button--cancel"
@@ -377,6 +403,7 @@ function ApprovalDetailPage() {
                     <div className="approval-step">{line.approvalStep}</div>
                     <div className="approval-line-user">
                       <strong>{line.approverName}</strong>
+                      {line.originalApproverName && <small>위임: {line.originalApproverName} → {line.approverName}</small>}
                       <span>
                         {lineStatusLabels[line.approvalStatus] ??
                           line.approvalStatus}
@@ -460,18 +487,22 @@ function ApprovalDetailPage() {
             <h2 id="decision-dialog-title">
               {decisionType === 'CANCELED'
                 ? '결재 문서 상신을 취소할까요?'
+                : decisionType === 'TERMINATED'
+                  ? '결재 문서를 강제 종료할까요?'
                 : `문서를 ${decisionType === 'APPROVED' ? '승인' : '반려'}할까요?`}
             </h2>
             <p>
               {decisionType === 'CANCELED'
                 ? '취소한 문서는 더 이상 결재를 진행할 수 없습니다.'
+                : decisionType === 'TERMINATED'
+                  ? '이 처리는 되돌릴 수 없으며, 사유와 처리자가 이력에 남습니다.'
                 : '처리 결과는 즉시 결재선과 처리 이력에 반영됩니다.'}
             </p>
             <form onSubmit={handleDecisionSubmit}>
               {decisionType !== 'CANCELED' && (
                 <>
               <label htmlFor="decision-comment">
-                {decisionType === 'APPROVED' ? '의견' : '반려 사유'}
+                {decisionType === 'APPROVED' ? '의견' : decisionType === 'TERMINATED' ? '강제 종료 사유' : '반려 사유'}
               </label>
               <textarea
                 disabled={isDecisionSubmitting}
@@ -482,9 +513,9 @@ function ApprovalDetailPage() {
                 placeholder={
                   decisionType === 'APPROVED'
                     ? '승인 의견을 입력하세요. (선택)'
-                    : '반려 사유를 입력하세요.'
+                    : decisionType === 'TERMINATED' ? '강제 종료 사유를 입력하세요.' : '반려 사유를 입력하세요.'
                 }
-                required={decisionType === 'REJECTED'}
+                required={decisionType === 'REJECTED' || decisionType === 'TERMINATED'}
                 rows="4"
                 value={decisionComment}
               />
@@ -518,6 +549,8 @@ function ApprovalDetailPage() {
                       ? '승인하기'
                       : decisionType === 'REJECTED'
                         ? '반려하기'
+                        : decisionType === 'TERMINATED'
+                          ? '강제 종료하기'
                         : '상신 취소'}
                 </button>
               </div>

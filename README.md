@@ -1,74 +1,180 @@
 # SideWorks
 
-SideWorks는 전자결재와 조직 관리를 중심으로 개발하는 그룹웨어 MVP입니다.
-Spring Boot와 React를 기반으로 설계·구현하며, 개발 과정에서의 기술 선택과 문제 해결을 학습하고 취업 포트폴리오로 정리하는 것을 목표로 합니다.
+전자결재를 중심으로 계정·조직, 근태, 휴가, 알림을 연결한 개인 그룹웨어 프로젝트입니다. 기능 수를 늘리는 것보다 **결재 상태 전이, 데이터 정합성, 권한 경계**를 명확히 설계하고 검증하는 데 중점을 두었습니다.
 
-V1의 핵심 기능, 프론트엔드 API 연동, JWT 자동 재발급, Swagger/OpenAPI 문서화와 AWS 배포 검증을 완료했습니다. V2에서는 요청 추적 로그·조직도·전자결재 첨부파일에 이어 출퇴근, 근태 캘린더, 권한 범위별 직원 조회, 정정 결재와 휴무일 관리의 기본 흐름까지 구현했습니다.
+| 영역 | 구현 범위 |
+| --- | --- |
+| 계정·조직 | JWT 로그인·재발급, 역할별 권한, 사용자·부서·직급 관리, 조직도 |
+| 전자결재 | 작성·상신·다단계 승인·반려·취소, 참조자, 첨부파일, 문서 종류 관리 |
+| 결재선 | 부서/공용 템플릿, 상신 전 결재자 조정, 기간제 결재 위임, 관리자 강제 종료 |
+| 휴가·근태 | 연차 잔액·증감 이력, 휴가/반차 신청·취소, 출퇴근·근태 정정·캘린더 |
+| 알림 | 결재 이벤트의 DB 저장, SSE 팝업, 알림함·읽음 처리 |
 
-## 주요 기능
+기술 스택: Java 21, Spring Boot 3.5, Spring Security, Spring Data JPA, QueryDSL, MySQL 8.0, React 19, MUI. 현재 상시 공개된 서비스는 없습니다. AWS EC2·RDS·Nginx에서 V1 흐름을 한 차례 검증한 뒤 비용을 고려해 자원을 정리했습니다.
 
-- JWT 기반 로그인과 권한 관리
-- 사용자·부서·직급 관리
-- 전자결재 작성, 상신, 승인, 반려, 취소
-- 전자결재 다중 첨부파일 업로드, 다운로드와 권한 검증
-- 계층형 부서 트리와 직속 구성원 조직도
-- 출퇴근 기록과 월별 근태 캘린더
-- HR·부서장 범위가 적용된 직원 근태 조회
-- 전자결재 기반 근태 정정과 변경 이력
-- 공휴일·회사 지정 휴무일·예외 근무일 관리
-- 결재선·참조자·처리 이력 관리
-- 마이페이지
-- React/MUI 기반 관리 화면과 대시보드
-- Swagger/OpenAPI 기반 API 명세
+## 설계 중점
 
-## V1 진행 상태
+1. **결재선 템플릿과 실제 결재선 분리.** 템플릿은 상신을 돕는 원본이고, 상신 시 조정한 결재자·참조자는 문서별 결재선에 저장합니다. 이후 템플릿 변경이 진행 중인 문서에 소급되지 않습니다. 부서 템플릿은 해당 부서, 공용 템플릿은 전사에 제공하며 인사정보와 달라진 템플릿은 사용을 막습니다.
+2. **승인 시 업무 데이터와 이력을 함께 변경.** 휴가 최종 승인에서는 잔액 차감과 사용 이력, 취소 승인에서는 복원 이력을 결재 상태 변경과 같은 트랜잭션에서 처리합니다. 연차 잔액 행 잠금과 `(user_id, leave_year)` 유니크 제약으로 중복·경합을 방어하고, `source_key`로 같은 업무 사건의 이력 중복을 막습니다.
+3. **상태를 단일 컬럼으로 뭉개지 않음.** 문서의 전체 상태와 단계별 결재 상태를 구분합니다. 결재 대기함은 `문서 진행 중 AND 현재 단계 대기 중`을 함께 검사합니다. 출퇴근 기록, 지각·조퇴, 휴가 표시도 서로 다른 사실에서 계산합니다.
+4. **위임은 도착 시점의 배정 결정.** 기간 중 새로 도착한 단계에만 위임을 적용하며 기존 대기 문서는 건드리지 않습니다. 배정 후 기간이 끝나도 해당 대리인이 계속 처리합니다. 대리인이 작성자·참조자·다른 단계 결재자와 충돌하면 원래 결재자를 유지합니다.
+5. **알림의 저장과 실시간 전송 분리.** 알림 레코드는 결재 트랜잭션에 저장하고 SSE는 커밋 후 전송합니다. 연결이 끊겨도 알림함에서 다시 확인할 수 있으며, 조회·읽음 처리와 문서 열람 권한은 서버에서 검증합니다.
 
-- 완료: 인증·인가, 사용자·부서·직급 관리, 마이페이지, 전자결재, 통합 검색, 대시보드
-- 완료: React 화면과 백엔드 API 연동, Access Token 자동 재발급 검증
-- 완료: 역할별 접근 검증 및 Swagger/OpenAPI 문서화
-- 완료: AWS EC2·RDS·Nginx 기반 배포와 로그인부터 결재 완료까지의 운영 환경 스모크 테스트
-- 완료: 작성자·결재자·참조자 관점의 문서 상태와 실제 RDS 데이터 반영 확인
+이 설계는 개인 프로젝트 규모에서 이해와 유지보수를 우선한 선택입니다. Redis·Kafka, 범용 워크플로 엔진, 자동 인사규정 계산, AI 문서 작성과 조직 통계는 현재 범위에 넣지 않았습니다.
 
-배포는 일회성 검증 환경에서 수행했으며, 검증과 화면 기록 후 과금 방지를 위해 클라우드 자원을 정리했습니다. 재현 가능한 구성과 트러블슈팅 과정은 별도 배포 문서에 값이 아닌 절차 중심으로 기록했습니다.
+## 프로젝트 구조도
 
-## 기술 스택
+한 개의 Spring Boot 애플리케이션 안에서 도메인별 책임을 나눴습니다. 아래 박스는 별도 마이크로서비스가 아닙니다.
 
-- Backend: Java 21, Spring Boot 3.5, Spring Security, Spring Data JPA, QueryDSL, springdoc-openapi
-- Database: MySQL 8.0
-- Frontend: React 19, MUI
-- Authentication: JWT Access Token, Refresh Token Cookie
+```mermaid
+flowchart LR
+    Browser["React · MUI"] --> Security["Spring Security · JWT"]
+    Security --> API["Controller"] --> Service["도메인 Service"]
+    Service --> Repo["JPA · QueryDSL"] --> DB[(MySQL)]
+    Service --> Approval["결재 상태·이력"]
+    Approval --> Leave["휴가·연차 후처리"]
+    Approval --> Attendance["근태 정정 후처리"]
+    Approval --> Notification["알림 저장"]
+    Notification -->|커밋 후| SSE["SSE · 브라우저"]
+```
 
-## V2 고도화 계획
+주요 패키지는 `auth`, `user`, `department`, `position`, `approval`, `leave`, `attendance`, `notification`입니다. React는 `frontend/`, 백엔드는 `src/main/java/`, 자동 테스트는 `src/test/java/`에 있습니다.
 
-2026-09-16 기준 기초 설계를 바탕으로 Vertical Slice 단위 구현을 진행하고 있습니다. 상세 정책과 구현 상태는 [V2 기초 설계와 결정 기록](docs/v2-foundation-design.md)을 기준으로 합니다.
+## DB ERD
 
-- 완료: 요청 ID와 Application/Audit 파일 로그
-- 완료: 부서 트리·직속 구성원·상세 화면의 조직도
-- 완료: 환경설정 기반 용량 제한과 로컬 저장소를 사용하는 결재 첨부파일
-- 완료: 회사 근무정책 기반 출퇴근, 본인 월별 캘린더와 결근·휴무 판정
-- 완료: HR·시스템 관리자·부서장 범위별 직원 근태 조회
-- 완료: 전자결재 기반 근태 정정, 승인 시 자동 반영과 변경 이력
-- 완료: 공휴일·회사 지정 휴무일·예외 근무일 관리
-- 설계·DB 적용(2026-09-18): 연도별 단순 연차 정책과 잔액·증감 이력, 기존 결재 양식의 연차·반차 신청 및 전체 취소, 승인 대기량 기반 초과 신청 차단. 기능 구현은 다음 단계입니다.
-- 휴가 신청·취소 전자결재, 한 단계 자동 결재선, 기간제 대리 결재
-- 부서 범위에 따른 승인 휴가·반차 캘린더
-- DB 알림 저장과 커밋 후 SSE 전달
-- 역할별 조직 운영 통계와 보안·성능 점검
+아래는 핵심 PK·FK와 업무 관계를 보여 주는 **요약 ERD**입니다. 공통 시각 컬럼, 감사용 참조와 일부 독립 기준 테이블은 가독성을 위해 생략했습니다. 관계선은 테이블 소속을 뜻하며 전체 물리 FK 목록이나 실제 NULL 제약을 대체하지 않습니다. `approval_delegationtbl`은 이후 구현된 기간제 위임 테이블입니다.
 
-계정 역할은 USER / HR_MANAGER / SUPER_ADMIN으로 운영하며, 기존 ADMIN 데이터 이관 후 코드의 호환 역할도 제거했습니다. 부서장 권한은 별도 역할값이 아니라 `departmenttbl.manager_user_id` 관계로 판단하여 HR_MANAGER와 부서장 책임을 동시에 가질 수 있습니다.
+### 계정·전자결재·알림
 
-작은 업무 흐름을 백엔드·화면·테스트·문서까지 완성하는 Vertical Slice 방식으로 개발합니다. 9월 구현을 목표로 하고 11~12월 종합 검증을 계획하되 기능별 테스트는 개발과 함께 수행합니다.
+```mermaid
+erDiagram
+    departmenttbl o|--o{ departmenttbl : parent_department_id
+    departmenttbl o|--o{ usertbl : department_id
+    positiontbl o|--o{ usertbl : position_id
+    usertbl o|--o{ departmenttbl : manager_user_id
+    usertbl ||--o{ approvaltbl : writer_id
+    approval_document_typetbl o|--o{ approvaltbl : document_type_id
+    approvaltbl ||--o{ approval_linetbl : approval_id
+    usertbl ||--o{ approval_linetbl : approver_id
+    approvaltbl ||--o{ approval_cctbl : approval_id
+    usertbl ||--o{ approval_cctbl : user_id
+    approvaltbl ||--o{ approval_historytbl : approval_id
+    approvaltbl ||--o{ approval_attachmenttbl : approval_id
+    approvaltbl ||--o{ notificationtbl : approval_id
+    usertbl ||--o{ notificationtbl : recipient_id
+    departmenttbl o|--o{ approval_templatetbl : department_id
+    approval_templatetbl ||--o{ approval_template_linetbl : approval_template_id
+    approval_templatetbl ||--o{ approval_template_cctbl : approval_template_id
+    usertbl ||--o{ approval_delegationtbl : delegator_id
+    usertbl ||--o{ approval_delegationtbl : delegatee_id
 
-급여·수당·교대·유연근무·출근 위치 제한은 제외합니다. 전결·합의·범용 템플릿·WebSocket 채팅은 향후 후보이며, Redis·Kafka와 별도 로그 플랫폼은 필요성이 확인될 때 검토합니다.
+    usertbl {
+        bigint user_id PK
+        bigint department_id FK
+        bigint position_id FK
+        varchar status
+    }
+    approvaltbl {
+        bigint approval_id PK
+        bigint writer_id FK
+        bigint document_type_id FK
+        varchar approval_status
+        int current_step
+    }
+    approval_linetbl {
+        bigint approval_line_id PK
+        bigint approval_id FK
+        bigint approver_id FK
+        int approval_step
+        varchar approval_status
+    }
+    approval_templatetbl {
+        bigint approval_template_id PK
+        bigint department_id FK
+        varchar scope
+        bigint version
+    }
+    notificationtbl {
+        bigint notification_id PK
+        bigint recipient_id FK
+        bigint approval_id FK
+        bigint approval_template_id
+        varchar event_key
+    }
+```
 
-## 문서
+`approval_template_linetbl`·`approval_template_cctbl`은 템플릿의 결재자·참조자이고, `approval_linetbl`·`approval_cctbl`은 문서별 실제 참여자입니다. 알림의 `approval_template_id`는 템플릿 차단 알림에 쓰는 선택적 참조이므로 위 다이어그램에 FK 선으로 표현하지 않았습니다.
 
-- [아키텍처와 설계 결정](docs/architecture.md)
-- [클래스 구조와 요청 흐름](docs/class-structure.md)
-- [DB 구조와 설계 결정](docs/database-design.md)
-- [JWT 인증과 전자결재 흐름](docs/approval-security-flow.md)
-- [개발 현황과 V2 로드맵](docs/roadmap.md)
-- [AWS 배포 및 트러블슈팅](docs/deployment.md)
-- [주요 트러블슈팅](docs/troubleshooting.md)
-- [AI 협업 방식](docs/ai-collaboration.md)
-- [V2 기초 설계와 결정 기록](docs/v2-foundation-design.md)
+### 휴가·연차·근태
+
+```mermaid
+erDiagram
+    usertbl ||--o{ annual_leave_balancetbl : user_id
+    annual_leave_balancetbl ||--o{ annual_leave_historytbl : balance_id
+    annual_leave_balancetbl ||--o{ leave_requesttbl : balance_id
+    approvaltbl ||--o| leave_requesttbl : approval_id
+    leave_requesttbl ||--o{ leave_request_daytbl : leave_request_id
+    leave_requesttbl ||--o{ leave_cancellationtbl : leave_request_id
+    approvaltbl ||--o| leave_cancellationtbl : approval_id
+    work_policytbl ||--o{ work_policy_daytbl : work_policy_id
+    work_policytbl ||--o{ attendancetbl : work_policy_id
+    usertbl ||--o{ attendancetbl : user_id
+    approvaltbl ||--o| attendance_correctiontbl : approval_id
+    usertbl ||--o{ attendance_correctiontbl : user_id
+    usertbl ||--o{ attendance_change_historytbl : user_id
+
+    annual_leave_balancetbl {
+        bigint annual_leave_balance_id PK
+        bigint user_id FK
+        int leave_year
+        decimal granted_days
+        decimal remaining_days
+        bigint version
+    }
+    annual_leave_historytbl {
+        bigint annual_leave_history_id PK
+        bigint balance_id FK
+        varchar action_type
+        varchar source_key UK
+        decimal days_delta
+    }
+    leave_requesttbl {
+        bigint leave_request_id PK
+        bigint approval_id FK
+        bigint balance_id FK
+        decimal total_days
+    }
+    attendancetbl {
+        bigint attendance_id PK
+        bigint user_id FK
+        date attendance_date
+        bigint version
+    }
+```
+
+`annual_leave_historytbl`의 `GRANT`·`USE`·`RESTORE`는 잔액 변경 원장입니다. 휴가와 근태 정정은 각각 결재 문서에 연결되며, 최종 승인 시점에 업무 데이터를 반영합니다. `employee_number_sequencetbl`, `work_schedule_exceptiontbl`은 다른 테이블과 물리 FK가 없는 독립 기준 데이터입니다.
+
+### 무결성 선택
+
+- `(user_id, leave_year)`, `(approval_id, approval_step)`, `(approval_id, user_id)`처럼 업무상 중복이 허용되지 않는 조합은 DB 유니크 제약으로 막습니다. 서비스 검증은 친절한 오류를 위한 1차 방어이고 제약조건은 동시 요청에 대한 최종 방어입니다.
+- `departmenttbl.manager_user_id`와 `usertbl.department_id`는 순환 참조지만 관리자가 없는 부서를 먼저 만들 수 있도록 nullable을 허용합니다. 사용자는 이력 참조 때문에 물리 삭제보다 상태 변경을 사용합니다.
+- `approvaltbl.document_type`과 `document_type_id`는 기존 문자열 방식에서 문서 종류 마스터로 전환한 과도기 중복입니다. 무리하게 삭제하지 않고 데이터 이관·호환성을 확인한 뒤 정리할 대상입니다.
+- 결재선·연차 잔액 등 수정 경쟁이 가능한 데이터에는 버전 또는 행 잠금을 사용합니다. 이력은 기존 행 수정 대신 새 행을 추가합니다.
+
+## 트러블슈팅과 검증
+
+| 증상 | 원인 확인과 해결 | 확인 방법 |
+| --- | --- | --- |
+| Access Token 만료 시 여러 API 동시 실패 | 프론트에서 재발급 Promise를 공유해 중복 재발급 경쟁을 줄임 | 짧은 만료 시간으로 Network 요청·재시도 확인 |
+| 상신 취소 문서가 대기함에 남음 | 결재선 `PENDING`만 검사하던 쿼리에 문서 `IN_PROGRESS` 조건 추가 | 취소 전후 결재자 대기함 비교 |
+| 템플릿 참조자 클릭이 반응 없어 보임 | 선택 상태는 바뀌었지만 CSS 선택 표시가 빠짐 | 선택 색상·인원 수와 실제 저장 확인 |
+| 관리자가 막힌 타인 결재에 접근 불가 | 개인 결재함과 별도로 권한 제한된 관리자 결재 관리 화면·API 추가 | 관리자 조회·필터·강제 종료 수동 확인 |
+| `contextLoads`에서 Hibernate Dialect 오류 | 실제 원인은 테스트 DB 인증 정보 불일치. 연결 실패가 Dialect 초기화 오류로 이어짐 | 인증 설정 수정 후 별도 기동 테스트 성공 |
+
+프론트 lint·빌드와 DB 기동 테스트를 확인했습니다. 2026-10-01 기록 기준 업무 자동 테스트는 DB 기동 테스트를 제외한 257개가 통과했고, DB 기동 테스트는 올바른 로컬 인증 설정으로 별도 실행해 성공했습니다. **전체 258개를 한 번에 통과시킨 기록은 아닙니다.** 휴가 잔액 차감·취소 복원, 반차 합산, SSE 알림, 템플릿·위임의 주요 흐름은 사용자 브라우저/DB 테스트로 확인했지만 모든 동시성·장애·인사변경 경계를 검증한 것은 아닙니다.
+
+## 개발 방식과 남은 과제
+
+요구사항과 정책, 범위 선택은 개발자가 결정하고 Codex는 설계 대안 설명, 반복 구현, 리뷰와 문서화를 지원했습니다. 결과는 자동 테스트와 브라우저·DB 수동 검증으로 확인했으며 AI가 작성했다는 사실을 숨기지 않습니다.
+
+현재 공개 배포 URL은 없습니다. 실제 운영 전에는 비밀값 주입, HTTPS·SSE 프록시, DB/첨부파일 백업·복원, 재시작 정책과 전체 회귀·경합 테스트가 필요합니다. 이 README는 구현과 검증이 확인된 범위만 요약한 포트폴리오 문서입니다.

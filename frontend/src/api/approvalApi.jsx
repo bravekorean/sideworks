@@ -6,11 +6,12 @@ const approvalBoxEndpoints = {
   pending: '/approvals/pending',
   processed: '/approvals/processed',
   cc: '/approvals/cc',
+  manage: '/approvals/manage',
 }
 
 export async function getApprovalBox(
   box,
-  { page = 0, size = 5, keyword = '', status = '' } = {},
+  { page = 0, size = 5, keyword = '', status = '', blockedOnly = false } = {},
 ) {
   const endpoint = approvalBoxEndpoints[box]
 
@@ -24,6 +25,7 @@ export async function getApprovalBox(
       size,
       keyword: keyword || undefined,
       status: status || undefined,
+      blockedOnly: box === 'manage' ? blockedOnly : undefined,
     },
   })
 
@@ -46,19 +48,26 @@ export async function searchApprovals(keyword, { page = 0, size = 20 } = {}) {
   return response.data
 }
 
-export async function createDraft(title, content) {
+export async function getApprovalDocumentTypes() {
+  const response = await apiClient.get('/approval-document-types')
+  return response.data
+}
+
+export async function createDraft(title, content, documentTypeId) {
   const response = await apiClient.post('/approvals', {
     title,
     content,
+    documentTypeId,
   })
 
   return response.data.approvalId
 }
 
-export async function updateDraft(approvalId, title, content) {
+export async function updateDraft(approvalId, title, content, documentTypeId) {
   await apiClient.put(`/approvals/${approvalId}`, {
     title,
     content,
+    documentTypeId,
   })
 }
 
@@ -68,10 +77,12 @@ export async function getApprovalDetail(approvalId) {
   return response.data
 }
 
-export async function submitApproval(approvalId, approverIds, ccUserIds) {
+export async function submitApproval(approvalId, approverIds, ccUserIds, templateId = null, templateVersion = null) {
   await apiClient.post(`/approvals/${approvalId}/submit`, {
     approverIds,
     ccUserIds,
+    templateId,
+    templateVersion,
   })
 }
 
@@ -89,6 +100,10 @@ export async function rejectApproval(approvalId, comment) {
 
 export async function cancelApproval(approvalId) {
   await apiClient.post(`/approvals/${approvalId}/cancel`)
+}
+
+export async function terminateApproval(approvalId, reason) {
+  await apiClient.post(`/approvals/${approvalId}/terminate`, { reason: reason.trim() })
 }
 
 export async function deleteDraft(approvalId) {

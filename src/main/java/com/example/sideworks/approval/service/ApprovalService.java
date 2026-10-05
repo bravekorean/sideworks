@@ -13,7 +13,9 @@ import com.example.sideworks.approval.dto.ApprovalHistoryResponse;
 import com.example.sideworks.approval.dto.ApprovalLineResponse;
 import com.example.sideworks.approval.dto.ApprovalListResponse;
 import com.example.sideworks.approval.dto.ApprovalSubmitRequest;
+import com.example.sideworks.approval.dto.ApprovalTerminateRequest;
 import com.example.sideworks.approval.entity.Approval;
+import com.example.sideworks.approval.entity.DocumentBehaviorType;
 import com.example.sideworks.approval.entity.ApprovalActionType;
 import com.example.sideworks.approval.entity.ApprovalCc;
 import com.example.sideworks.approval.entity.ApprovalHistory;
@@ -29,7 +31,9 @@ import com.example.sideworks.common.exception.BusinessException;
 import com.example.sideworks.common.exception.ErrorCode;
 import com.example.sideworks.user.entity.User;
 import com.example.sideworks.user.entity.UserRole;
+import com.example.sideworks.user.entity.UserStatus;
 import com.example.sideworks.user.repository.UserRepository;
+import com.example.sideworks.notification.service.ApprovalNotificationWorkflow;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -62,6 +66,21 @@ public class ApprovalService {
     private final ApprovalSubmissionValidator submissionValidator;
     private final ApprovalSubmissionFactory submissionFactory;
     private final com.example.sideworks.attendance.service.AttendanceCorrectionService attendanceCorrections;
+    private final com.example.sideworks.leave.service.LeaveRequestService leaveRequests;
+    private final com.example.sideworks.leave.service.LeaveCancellationService leaveCancellations;
+    private final ApprovalDocumentTypeService documentTypes;
+    private final ApprovalNotificationWorkflow notificationWorkflow;
+    private final ApprovalTemplateService approvalTemplateService;
+    private final ApprovalDelegationService delegationService;
+
+    public Page<ApprovalListResponse> getManagedApprovals(String loginId, String keyword,
+                                                         ApprovalStatus status, boolean blockedOnly, Pageable pageable) {
+        User actor = findUserByLoginId(loginId);
+        if (actor.getUserRole() != UserRole.SUPER_ADMIN) {
+            throw new BusinessException(ErrorCode.APPROVAL_MANAGEMENT_FORBIDDEN);
+        }
+        return approvalRepository.findForManagement(keyword, status, blockedOnly, pageable);
+    }
 
     @Transactional
     public Long createDraft(String loginId, ApprovalDraftRequest request) {
@@ -71,7 +90,8 @@ public class ApprovalService {
         Approval approval = Approval.createDraft(
                 writer,
                 request.getTitle(),
-                request.getContent()
+                request.getContent(),
+                documentTypes.requireActiveGeneral(request.getDocumentTypeId())
         );
 
         return approvalRepository.save(approval).getApprovalId();
@@ -82,7 +102,9 @@ public class ApprovalService {
         Approval approval = findEditableDraft(approvalId, loginId);
 
         validateDraftRequest(request);
-        approval.updateDraft(request.getTitle(), request.getContent());
+        validateGeneralDraft(approval);
+        approval.updateDraft(request.getTitle(), request.getContent(),
+                documentTypes.requireActiveGeneral(request.getDocumentTypeId()));
     }
 
     @Transactional
@@ -107,9 +129,19 @@ public class ApprovalService {
     @Transactional
     public void submitApproval(Long approvalId, String loginId, ApprovalSubmitRequest request) {
         Approval approval = findEditableDraft(approvalId, loginId);
+        validateGeneralDraft(approval);
+        documentTypes.requireActiveGeneral(approval.getDocumentType() == null ? null
+                : approval.getDocumentType().getApprovalDocumentTypeId());
 
         submissionValidator.validateRequest(request);
         submissionValidator.validateDocument(approval);
+
+        if ((request.getTemplateId() == null) != (request.getTemplateVersion() == null)) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        }
+        if (request.getTemplateId() != null) {
+            approvalTemplateService.validateSubmission(loginId, request.getTemplateId(), request.getTemplateVersion());
+        }
 
         List<Long> approverIds = request.getApproverIds();
         List<Long> ccUserIds = normalizeCcUserIds(request.getCcUserIds());
@@ -121,7 +153,8 @@ public class ApprovalService {
 
         List<ApprovalLine> approvalLines = submissionFactory.createLines(
                 approval,
-                approvers
+                approvers,
+                ccUsers
         );
         List<ApprovalCc> approvalCcs = submissionFactory.createCcs(
                 approval,
@@ -131,6 +164,17 @@ public class ApprovalService {
 
         approval.submit(LocalDateTime.now());
         saveSubmissionDetails(approvalLines, approvalCcs, history);
+        notificationWorkflow.onSubmitted(approval, approvalLines.getFirst().getApprover(), ccUsers);
+    }
+
+    private void validateGeneralDraft(Approval approval) {
+        if (approval.getDocumentType() != null
+                && approval.getDocumentType().getBehaviorType() != DocumentBehaviorType.GENERAL) {
+            throw new BusinessException(ErrorCode.DOCUMENT_TYPE_NOT_ALLOWED);
+        }
+        if (approval.getDocumentType() == null && !"GENERAL_PROPOSAL".equals(approval.getLegacyDocumentType())) {
+            throw new BusinessException(ErrorCode.DOCUMENT_TYPE_NOT_ALLOWED);
+        }
     }
 
     @Transactional
@@ -142,11 +186,20 @@ public class ApprovalService {
         validateCurrentApprover(currentLine, actor);
         String comment = normalizeDecisionComment(request, false);
         LocalDateTime processedAt = LocalDateTime.now();
+        Optional<ApprovalLine> nextLine = approvalLineRepository
+                .findFirstByApproval_ApprovalIdAndApprovalStepGreaterThanOrderByApprovalStepAsc(
+                        approval.getApprovalId(), currentLine.getApprovalStep());
 
         attendanceCorrections.onDecision(approval, actor, true);
+        if (nextLine.isEmpty()) {
+            // 연차 사용·복원은 모든 결재 단계가 끝날 때 한 번만 처리한다.
+            leaveRequests.onDecision(approval, actor, true);
+            leaveCancellations.onDecision(approval, actor, true);
+        }
         currentLine.approve(comment, processedAt);
-        advanceApproval(approval, currentLine, processedAt);
+        advanceApproval(approval, nextLine, processedAt);
         saveDecisionHistory(approval, currentLine, actor, ApprovalActionType.APPROVED, comment);
+        notificationWorkflow.onApproved(approval, currentLine.getApprovalStep());
     }
 
     @Transactional
@@ -160,9 +213,12 @@ public class ApprovalService {
         LocalDateTime processedAt = LocalDateTime.now();
 
         attendanceCorrections.onDecision(approval, actor, false);
+        leaveRequests.onDecision(approval, actor, false);
+        leaveCancellations.onDecision(approval, actor, false);
         currentLine.reject(comment, processedAt);
         approval.reject(processedAt);
         saveDecisionHistory(approval, currentLine, actor, ApprovalActionType.REJECTED, comment);
+        notificationWorkflow.onRejected(approval);
     }
 
     @Transactional
@@ -172,8 +228,10 @@ public class ApprovalService {
 
         validateCancellation(approval, actor);
         LocalDateTime canceledAt = LocalDateTime.now();
+        User currentApprover = findCurrentApprovalLine(approval).getApprover();
 
         attendanceCorrections.onCancel(approvalId);
+        leaveCancellations.onCancel(approvalId);
         approval.cancel(canceledAt);
         approvalHistoryRepository.save(ApprovalHistory.create(
                 approval,
@@ -182,6 +240,39 @@ public class ApprovalService {
                 ApprovalActionType.CANCELED,
                 null
         ));
+        notificationWorkflow.onCanceled(approval, currentApprover);
+    }
+
+    @Transactional
+    public void terminateApproval(Long approvalId, String loginId, ApprovalTerminateRequest request) {
+        User actor = findUserByLoginId(loginId);
+        if (actor.getUserRole() != UserRole.SUPER_ADMIN) {
+            throw new BusinessException(ErrorCode.APPROVAL_TERMINATE_FORBIDDEN);
+        }
+        String reason = request == null ? null : request.reason();
+        if (reason == null || reason.isBlank()) {
+            throw new BusinessException(ErrorCode.APPROVAL_TERMINATE_REASON_REQUIRED);
+        }
+        reason = reason.trim();
+        if (reason.length() > MAX_APPROVAL_COMMENT_LENGTH) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        }
+
+        Approval approval = findApprovalForDecision(approvalId);
+        ApprovalLine currentLine = findCurrentApprovalLine(approval);
+        if (!currentLine.isPending()) {
+            throw new BusinessException(ErrorCode.APPROVAL_LINE_NOT_PROCESSABLE);
+        }
+        if (currentLine.getApprover().getStatus() == UserStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.APPROVAL_TERMINATE_NOT_ALLOWED);
+        }
+
+        attendanceCorrections.onCancel(approvalId);
+        leaveCancellations.onCancel(approvalId);
+        approval.terminate(LocalDateTime.now());
+        approvalHistoryRepository.save(ApprovalHistory.create(
+                approval, actor, currentLine.getApprovalStep(), ApprovalActionType.TERMINATED, reason));
+        notificationWorkflow.onTerminated(approval);
     }
 
     public Page<ApprovalListResponse> getDraftApprovals(String loginId, String keyword, Pageable pageable) {
@@ -396,21 +487,16 @@ public class ApprovalService {
 
     private void advanceApproval(
             Approval approval,
-            ApprovalLine currentLine,
+            Optional<ApprovalLine> nextLine,
             LocalDateTime processedAt
     ) {
-        Optional<ApprovalLine> nextLine = approvalLineRepository
-                .findFirstByApproval_ApprovalIdAndApprovalStepGreaterThanOrderByApprovalStepAsc(
-                        approval.getApprovalId(),
-                        currentLine.getApprovalStep()
-                );
-
         if (nextLine.isEmpty()) {
             approval.complete(processedAt);
             return;
         }
 
         ApprovalLine line = nextLine.get();
+        delegationService.assignNextStep(approval, line);
         line.activate();
         approval.moveToNextStep(line.getApprovalStep());
     }

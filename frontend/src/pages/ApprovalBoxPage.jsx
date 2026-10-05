@@ -1,6 +1,14 @@
 import ApprovalListPage from '../components/ApprovalListPage'
 
 const approvalBoxConfigs = {
+  manage: {
+    title: '결재 관리',
+    eyebrow: 'SYSTEM · APPROVAL',
+    description: '상신된 전체 문서를 조회하고, 비활성 결재자로 처리가 중단된 문서를 관리합니다.',
+    dateLabel: '상신일',
+    emptyMessage: '조회 조건에 해당하는 상신 문서가 없습니다.',
+    statusOptions: ['IN_PROGRESS', 'APPROVED', 'REJECTED', 'CANCELED', 'TERMINATED'],
+  },
   drafts: {
     title: '임시저장함',
     description: '작성 중인 결재 문서를 이어서 작성할 수 있습니다.',

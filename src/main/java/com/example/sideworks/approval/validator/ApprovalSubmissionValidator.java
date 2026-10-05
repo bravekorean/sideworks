@@ -5,7 +5,6 @@ import com.example.sideworks.approval.entity.Approval;
 import com.example.sideworks.common.exception.BusinessException;
 import com.example.sideworks.common.exception.ErrorCode;
 import com.example.sideworks.user.entity.User;
-import com.example.sideworks.user.entity.UserRole;
 import com.example.sideworks.user.entity.UserStatus;
 import org.springframework.stereotype.Component;
 
@@ -52,7 +51,7 @@ public class ApprovalSubmissionValidator {
         }
     }
 
-    private void validateParticipantIds(List<Long> approverIds, List<Long> ccUserIds) {
+    public void validateParticipantIds(List<Long> approverIds, List<Long> ccUserIds) {
         if (approverIds == null || approverIds.isEmpty()) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
@@ -92,22 +91,6 @@ public class ApprovalSubmissionValidator {
             throw new BusinessException(ErrorCode.INVALID_APPROVER);
         }
 
-        if (!hasApproverRole(approver)) {
-            throw new BusinessException(ErrorCode.INVALID_APPROVER);
-        }
-    }
-
-    private boolean hasApproverRole(User approver) {
-        UserRole role = approver.getUserRole();
-        boolean hasSystemApproverRole = role == UserRole.HR_MANAGER
-                || role == UserRole.SUPER_ADMIN;
-        boolean isTeamLeader = approver.getDepartment() != null
-                && Objects.equals(
-                approver.getDepartment().getManagerUserId(),
-                approver.getUserId()
-        );
-
-        return hasSystemApproverRole || isTeamLeader;
     }
 
     private void validateCcUser(Long writerId, User ccUser) {

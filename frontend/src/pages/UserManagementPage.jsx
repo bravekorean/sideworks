@@ -40,7 +40,7 @@ function UserManagementPage() {
   const [totalElements, setTotalElements] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState('ALL')
-  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [statusFilter, setStatusFilter] = useState('ACTIVE')
   const [assignmentFilter, setAssignmentFilter] = useState('ALL')
   const [selectedUser, setSelectedUser] = useState(null)
   const [dialogMode, setDialogMode] = useState(null)

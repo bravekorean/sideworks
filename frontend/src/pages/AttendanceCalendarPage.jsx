@@ -6,6 +6,7 @@ import {
   getMonthlyAttendances,
   getTodayAttendance,
 } from '../api/attendanceApi'
+import { getMyApprovedLeaveDays } from '../api/annualLeaveApi'
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
 
@@ -17,6 +18,8 @@ const STATE_LABELS = {
   DAY_OFF: '휴무일',
   LEAVE: '휴가',
 }
+
+const LEAVE_LABELS = { FULL: '휴가', AM: '오전 반차', PM: '오후 반차' }
 
 function toDateKey(date) {
   const year = date.getFullYear()
@@ -79,6 +82,7 @@ function AttendanceCalendarPage() {
   )
   const [todayAttendance, setTodayAttendance] = useState(null)
   const [monthlyAttendances, setMonthlyAttendances] = useState([])
+  const [approvedLeaveDays, setApprovedLeaveDays] = useState([])
   const [todayLoading, setTodayLoading] = useState(true)
   const [monthLoading, setMonthLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
@@ -134,9 +138,34 @@ function AttendanceCalendarPage() {
     }
   }, [viewMonth, viewYear])
 
+  useEffect(() => {
+    let active = true
+    getMyApprovedLeaveDays(viewYear, viewMonth).then((days) => {
+      if (active) setApprovedLeaveDays(days)
+    }).catch((error) => {
+      if (active) {
+        setFeedback(getErrorMessage(error, '승인된 휴가 날짜를 불러오지 못했습니다.'))
+        setFeedbackType('error')
+      }
+    })
+    return () => { active = false }
+  }, [viewMonth, viewYear])
+
   const recordsByDate = useMemo(
     () => new Map(monthlyAttendances.map((record) => [record.attendanceDate, record])),
     [monthlyAttendances],
+  )
+  const leaveByDate = useMemo(
+    () => {
+      const byDate = new Map()
+      approvedLeaveDays.forEach((day) => {
+        const previous = byDate.get(day.date)
+        byDate.set(day.date, previous && previous.period !== day.period
+          ? { date: day.date, period: 'FULL', leaveRequestId: null } : day)
+      })
+      return byDate
+    },
+    [approvedLeaveDays],
   )
   const calendarDays = useMemo(
     () => createCalendarDays(viewYear, viewMonth),
@@ -145,6 +174,7 @@ function AttendanceCalendarPage() {
   const selectedAttendance = selectedDateKey === todayKey
     ? todayAttendance ?? recordsByDate.get(selectedDateKey)
     : recordsByDate.get(selectedDateKey)
+  const selectedLeave = leaveByDate.get(selectedDateKey)
   const monthlySummary = useMemo(() => ({
     recorded: monthlyAttendances.filter((record) => record.attendanceId !== null).length,
     completed: monthlyAttendances.filter((record) => record.workState === 'COMPLETED').length,
@@ -154,6 +184,7 @@ function AttendanceCalendarPage() {
 
   const changeMonth = (amount) => {
     setMonthLoading(true)
+    setApprovedLeaveDays([])
     setViewDate((current) => {
       const next = new Date(current.getFullYear(), current.getMonth() + amount, 1)
       setSelectedDateKey(toDateKey(next))
@@ -164,6 +195,7 @@ function AttendanceCalendarPage() {
   const moveToCurrentMonth = () => {
     const current = new Date()
     setMonthLoading(true)
+    setApprovedLeaveDays([])
     setViewDate(new Date(current.getFullYear(), current.getMonth(), 1))
     setSelectedDateKey(toDateKey(current))
   }
@@ -191,9 +223,10 @@ function AttendanceCalendarPage() {
     }
   }
 
-  const workState = todayAttendance?.workState
-  const canCheckIn = todayAttendance?.checkInAllowed === true
-  const canCheckOut = todayAttendance?.checkOutAllowed === true
+  const fullLeaveToday = leaveByDate.get(todayKey)?.period === 'FULL'
+  const workState = fullLeaveToday ? 'LEAVE' : todayAttendance?.workState
+  const canCheckIn = todayAttendance?.checkInAllowed === true && !fullLeaveToday
+  const canCheckOut = todayAttendance?.checkOutAllowed === true && !fullLeaveToday
 
   return (
     <div className="attendance-page">
@@ -204,6 +237,8 @@ function AttendanceCalendarPage() {
           <p>출퇴근을 기록하고 월별 근태 현황을 확인합니다.</p>
           <Link to="/approvals/new?type=attendance-correction">근태 정정 결재 작성</Link>
           {' · '}<Link to="/attendance-corrections">변경 이력</Link>
+          {' · '}<Link to="/approvals/new?type=leave-request">휴가 신청</Link>
+          {' · '}<Link to="/approvals/new?type=leave-cancellation">휴가 취소</Link>
         </div>
       </header>
 
@@ -301,6 +336,7 @@ function AttendanceCalendarPage() {
               const record = dateKey === todayKey
                 ? todayAttendance ?? recordsByDate.get(dateKey)
                 : recordsByDate.get(dateKey)
+              const leave = leaveByDate.get(dateKey)
 
               return (
                 <button
@@ -311,17 +347,20 @@ function AttendanceCalendarPage() {
                   type="button"
                 >
                   <time dateTime={dateKey}>{date.getDate()}</time>
-                  {record ? (
+                  {record || leave ? (
                     <div className="attendance-calendar-day__records">
-                      <span className={`attendance-state attendance-state--${record.workState.toLowerCase()}`}>
-                        {STATE_LABELS[record.workState]}
-                      </span>
-                      <small><b>{formatTime(record.checkInAt)}</b> 출근</small>
-                      {record.checkOutAt && <small><b>{formatTime(record.checkOutAt)}</b> 퇴근</small>}
-                      <div>
-                        {record.late && <em>지각</em>}
-                        {record.earlyLeave && <em>조퇴</em>}
-                      </div>
+                      {leave ? <span className="attendance-state attendance-state--leave">{LEAVE_LABELS[leave.period]}</span>
+                        : <span className={`attendance-state attendance-state--${record.workState.toLowerCase()}`}>
+                          {STATE_LABELS[record.workState]}
+                        </span>}
+                      {record?.checkInAt && <>
+                        <small><b>{formatTime(record.checkInAt)}</b> 출근</small>
+                        {record.checkOutAt && <small><b>{formatTime(record.checkOutAt)}</b> 퇴근</small>}
+                        <div>
+                          {record.late && <em>지각</em>}
+                          {record.earlyLeave && <em>조퇴</em>}
+                        </div>
+                      </>}
                     </div>
                   ) : (
                     currentMonth && <span className="attendance-calendar-day__empty">기록 없음</span>
@@ -338,7 +377,12 @@ function AttendanceCalendarPage() {
             <h2>{formatSelectedDate(selectedDateKey)}</h2>
           </div>
 
-          {selectedAttendance ? (
+          {selectedLeave && <div className="attendance-day-detail__state">
+            <span className="attendance-state attendance-state--leave">{LEAVE_LABELS[selectedLeave.period]}</span>
+            <p>승인된 휴가{selectedLeave.leaveRequestId ? ` · 신청 #${selectedLeave.leaveRequestId}` : ''}</p>
+          </div>}
+
+          {selectedAttendance && selectedLeave?.period !== 'FULL' ? (
             <>
               <div className="attendance-day-detail__state">
                 <span className={`attendance-state attendance-state--${selectedAttendance.workState.toLowerCase()}`}>
@@ -360,7 +404,7 @@ function AttendanceCalendarPage() {
                 </div>
               </dl>
             </>
-          ) : (
+          ) : !selectedLeave && (
             <div className="attendance-day-detail__empty">
               <span aria-hidden="true">○</span>
               <strong>근태 기록이 없습니다</strong>

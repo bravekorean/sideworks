@@ -73,7 +73,13 @@ class ApprovalServiceDetailTest {
                 fileStorage,
                 submissionValidator,
                 submissionFactory,
-                org.mockito.Mockito.mock(com.example.sideworks.attendance.service.AttendanceCorrectionService.class)
+                org.mockito.Mockito.mock(com.example.sideworks.attendance.service.AttendanceCorrectionService.class),
+                org.mockito.Mockito.mock(com.example.sideworks.leave.service.LeaveRequestService.class),
+                org.mockito.Mockito.mock(com.example.sideworks.leave.service.LeaveCancellationService.class),
+                org.mockito.Mockito.mock(ApprovalDocumentTypeService.class),
+                org.mockito.Mockito.mock(com.example.sideworks.notification.service.ApprovalNotificationWorkflow.class),
+                org.mockito.Mockito.mock(ApprovalTemplateService.class),
+                org.mockito.Mockito.mock(ApprovalDelegationService.class)
         );
     }
 
@@ -165,7 +171,7 @@ class ApprovalServiceDetailTest {
                 now,
                 now,
                 now,
-                null
+                null, 1L, "품의서", com.example.sideworks.approval.entity.DocumentBehaviorType.GENERAL
         );
     }
 }

@@ -2,6 +2,7 @@ package com.example.sideworks.approval.dto;
 
 import com.example.sideworks.approval.attachment.dto.ApprovalAttachmentResponse;
 import com.example.sideworks.approval.entity.ApprovalStatus;
+import com.example.sideworks.approval.entity.DocumentBehaviorType;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -24,6 +25,9 @@ public class ApprovalDetailResponse {
     private final LocalDateTime updatedAt;
     private final LocalDateTime submittedAt;
     private final LocalDateTime completedAt;
+    private final Long documentTypeId;
+    private final String documentTypeName;
+    private final DocumentBehaviorType documentBehaviorType;
     private final List<ApprovalLineResponse> approvalLines;
     private final List<ApprovalCcResponse> ccUsers;
     private final List<ApprovalHistoryResponse> histories;
@@ -47,6 +51,9 @@ public class ApprovalDetailResponse {
                 header.getUpdatedAt(),
                 header.getSubmittedAt(),
                 header.getCompletedAt(),
+                header.getDocumentTypeId(),
+                header.getDocumentTypeName(),
+                header.getDocumentBehaviorType(),
                 List.copyOf(approvalLines),
                 List.copyOf(ccUsers),
                 List.copyOf(histories),

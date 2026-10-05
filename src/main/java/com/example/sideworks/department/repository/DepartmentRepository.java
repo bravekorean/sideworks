@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface DepartmentRepository extends JpaRepository<Department, Long> {
+    List<Department> findAllByManagerUserId(Long managerUserId);
 
     List<Department> findByParentDepartmentIsNullAndStatus(DepartmentStatus status);
 

@@ -3,6 +3,7 @@ package com.example.sideworks.approval.service;
 import com.example.sideworks.approval.attachment.repository.ApprovalAttachmentRepository;
 import com.example.sideworks.approval.attachment.storage.FileStorage;
 import com.example.sideworks.approval.dto.ApprovalDecisionRequest;
+import com.example.sideworks.approval.dto.ApprovalTerminateRequest;
 import com.example.sideworks.approval.entity.Approval;
 import com.example.sideworks.approval.entity.ApprovalActionType;
 import com.example.sideworks.approval.entity.ApprovalHistory;
@@ -18,6 +19,8 @@ import com.example.sideworks.approval.validator.ApprovalSubmissionValidator;
 import com.example.sideworks.common.exception.BusinessException;
 import com.example.sideworks.common.exception.ErrorCode;
 import com.example.sideworks.user.entity.User;
+import com.example.sideworks.user.entity.UserRole;
+import com.example.sideworks.user.entity.UserStatus;
 import com.example.sideworks.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -62,6 +66,10 @@ class ApprovalServiceDecisionTest {
     private ApprovalSubmissionValidator submissionValidator;
     @Mock
     private ApprovalSubmissionFactory submissionFactory;
+    @Mock
+    private com.example.sideworks.leave.service.LeaveRequestService leaveRequests;
+    @Mock
+    private com.example.sideworks.leave.service.LeaveCancellationService leaveCancellations;
 
     private ApprovalService approvalService;
 
@@ -77,7 +85,13 @@ class ApprovalServiceDecisionTest {
                 fileStorage,
                 submissionValidator,
                 submissionFactory,
-                org.mockito.Mockito.mock(com.example.sideworks.attendance.service.AttendanceCorrectionService.class)
+                org.mockito.Mockito.mock(com.example.sideworks.attendance.service.AttendanceCorrectionService.class),
+                leaveRequests,
+                leaveCancellations,
+                org.mockito.Mockito.mock(ApprovalDocumentTypeService.class),
+                org.mockito.Mockito.mock(com.example.sideworks.notification.service.ApprovalNotificationWorkflow.class),
+                org.mockito.Mockito.mock(ApprovalTemplateService.class),
+                org.mockito.Mockito.mock(ApprovalDelegationService.class)
         );
     }
 
@@ -100,6 +114,7 @@ class ApprovalServiceDecisionTest {
         assertThat(nextLine.getApprovalStatus()).isEqualTo(ApprovalLineStatus.PENDING);
         assertThat(approval.getCurrentStep()).isEqualTo(3);
         assertThat(approval.getApprovalStatus()).isEqualTo(ApprovalStatus.IN_PROGRESS);
+        verifyNoInteractions(leaveRequests, leaveCancellations);
         assertHistory(ApprovalActionType.APPROVED, "확인 완료");
     }
 
@@ -118,6 +133,8 @@ class ApprovalServiceDecisionTest {
         assertThat(currentLine.getApprovalStatus()).isEqualTo(ApprovalLineStatus.APPROVED);
         assertThat(approval.getApprovalStatus()).isEqualTo(ApprovalStatus.APPROVED);
         assertThat(approval.getCompletedAt()).isEqualTo(currentLine.getProcessedAt());
+        verify(leaveRequests).onDecision(approval, actor, true);
+        verify(leaveCancellations).onDecision(approval, actor, true);
         assertHistory(ApprovalActionType.APPROVED, null);
     }
 
@@ -206,6 +223,9 @@ class ApprovalServiceDecisionTest {
         when(approvalRepository.findByIdForUpdate(APPROVAL_ID)).thenReturn(Optional.of(approval));
         when(approvalLineRepository.existsByApproval_ApprovalIdAndProcessedAtIsNotNull(APPROVAL_ID))
                 .thenReturn(false);
+        ApprovalLine currentLine = line(approval, mock(User.class), 1, ApprovalLineStatus.PENDING);
+        when(approvalLineRepository.findByApproval_ApprovalIdAndApprovalStep(APPROVAL_ID, 1))
+                .thenReturn(Optional.of(currentLine));
 
         approvalService.cancelApproval(APPROVAL_ID, LOGIN_ID);
 
@@ -248,6 +268,69 @@ class ApprovalServiceDecisionTest {
         verify(approvalHistoryRepository, never()).save(org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    void 비활성_결재자가_대기중이면_관리자가_사유와_함께_강제_종료한다() {
+        User admin = mock(User.class);
+        when(admin.getUserRole()).thenReturn(UserRole.SUPER_ADMIN);
+        User approver = mock(User.class);
+        when(approver.getStatus()).thenReturn(UserStatus.INACTIVE);
+        Approval approval = inProgressApproval();
+        ApprovalLine line = line(approval, approver, 1, ApprovalLineStatus.PENDING);
+        prepareDecision(admin, approval, line);
+
+        approvalService.terminateApproval(APPROVAL_ID, LOGIN_ID, new ApprovalTerminateRequest(" 인사이동으로 처리 불가 "));
+
+        assertThat(approval.getApprovalStatus()).isEqualTo(ApprovalStatus.TERMINATED);
+        assertThat(approval.getCompletedAt()).isNotNull();
+        assertThat(line.getApprovalStatus()).isEqualTo(ApprovalLineStatus.PENDING);
+        assertHistory(ApprovalActionType.TERMINATED, "인사이동으로 처리 불가");
+        verify(leaveCancellations).onCancel(APPROVAL_ID);
+        verifyNoInteractions(leaveRequests);
+    }
+
+    @Test
+    void 활성_결재자가_대기중이면_관리자도_강제_종료할_수_없다() {
+        User admin = mock(User.class);
+        when(admin.getUserRole()).thenReturn(UserRole.SUPER_ADMIN);
+        User approver = mock(User.class);
+        when(approver.getStatus()).thenReturn(UserStatus.ACTIVE);
+        Approval approval = inProgressApproval();
+        prepareDecision(admin, approval, line(approval, approver, 1, ApprovalLineStatus.PENDING));
+
+        assertThatThrownBy(() -> approvalService.terminateApproval(APPROVAL_ID, LOGIN_ID,
+                new ApprovalTerminateRequest("사유")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.APPROVAL_TERMINATE_NOT_ALLOWED);
+        assertThat(approval.getApprovalStatus()).isEqualTo(ApprovalStatus.IN_PROGRESS);
+        verify(approvalHistoryRepository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void 일반_사용자는_강제_종료할_수_없다() {
+        User user = mock(User.class);
+        when(user.getUserRole()).thenReturn(UserRole.USER);
+        when(userRepository.findByLoginId(LOGIN_ID)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> approvalService.terminateApproval(APPROVAL_ID, LOGIN_ID,
+                new ApprovalTerminateRequest("사유")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.APPROVAL_TERMINATE_FORBIDDEN);
+        verify(approvalRepository, never()).findByIdForUpdate(APPROVAL_ID);
+    }
+
+    @Test
+    void 강제_종료_사유가_없으면_문서를_변경하지_않는다() {
+        User admin = mock(User.class);
+        when(admin.getUserRole()).thenReturn(UserRole.SUPER_ADMIN);
+        when(userRepository.findByLoginId(LOGIN_ID)).thenReturn(Optional.of(admin));
+
+        assertThatThrownBy(() -> approvalService.terminateApproval(APPROVAL_ID, LOGIN_ID,
+                new ApprovalTerminateRequest(" ")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.APPROVAL_TERMINATE_REASON_REQUIRED);
+        verify(approvalRepository, never()).findByIdForUpdate(APPROVAL_ID);
+    }
+
     private void prepareDecision(User actor, Approval approval, ApprovalLine currentLine) {
         when(userRepository.findByLoginId(LOGIN_ID)).thenReturn(Optional.of(actor));
         when(approvalRepository.findByIdForUpdate(APPROVAL_ID)).thenReturn(Optional.of(approval));
@@ -260,7 +343,7 @@ class ApprovalServiceDecisionTest {
     }
 
     private Approval inProgressApproval(User writer) {
-        Approval approval = Approval.createDraft(writer, "제목", "본문");
+        Approval approval = Approval.createDraft(writer, "제목", "본문", com.example.sideworks.approval.entity.ApprovalDocumentTypeFixtures.general());
         ReflectionTestUtils.setField(approval, "approvalId", APPROVAL_ID);
         approval.submit(LocalDateTime.of(2026, 7, 12, 12, 0));
         return approval;

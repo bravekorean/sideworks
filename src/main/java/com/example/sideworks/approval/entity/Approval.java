@@ -43,13 +43,22 @@ public class Approval extends BaseTimeEntity {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
-    public static Approval createDraft(User writer, String title, String content) {
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "document_type_id")
+    private ApprovalDocumentType documentType;
+
+    // 전환 기간에는 기존 CHECK 제약의 업무 분류와 새 세부 종류 FK를 함께 기록한다.
+    @Column(name = "document_type", nullable = false, length = 30)
+    private String legacyDocumentType;
+
+    public static Approval createDraft(User writer, String title, String content, ApprovalDocumentType documentType) {
         Approval approval = new Approval();
         approval.writer = writer;
         approval.title = title == null ? "" : title.trim();
         approval.content = content == null ? "" : content;
         approval.approvalStatus = ApprovalStatus.DRAFT;
         approval.currentStep = null;
+        approval.assignDocumentType(documentType);
 
         return approval;
     }
@@ -58,9 +67,16 @@ public class Approval extends BaseTimeEntity {
         return approvalStatus == ApprovalStatus.DRAFT;
     }
 
-    public void updateDraft(String title, String content) {
+    public void updateDraft(String title, String content, ApprovalDocumentType documentType) {
         this.title = title == null ? "" : title.trim();
         this.content = content == null ? "" : content;
+        assignDocumentType(documentType);
+    }
+
+    private void assignDocumentType(ApprovalDocumentType documentType) {
+        this.documentType = java.util.Objects.requireNonNull(documentType);
+        this.legacyDocumentType = documentType.getBehaviorType() == DocumentBehaviorType.GENERAL
+                ? "GENERAL_PROPOSAL" : documentType.getBehaviorType().name();
     }
 
     public void submit(LocalDateTime submittedAt) {
@@ -98,6 +114,12 @@ public class Approval extends BaseTimeEntity {
     public void cancel(LocalDateTime completedAt) {
         validateInProgress();
         this.approvalStatus = ApprovalStatus.CANCELED;
+        this.completedAt = completedAt;
+    }
+
+    public void terminate(LocalDateTime completedAt) {
+        validateInProgress();
+        this.approvalStatus = ApprovalStatus.TERMINATED;
         this.completedAt = completedAt;
     }
 

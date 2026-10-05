@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes } from 'react-router'
 import AppShell from './components/AppShell'
 import ApprovalDetailPage from './pages/ApprovalDetailPage'
+import ApprovalDelegationPage from './pages/ApprovalDelegationPage'
+import ApprovalTemplateManagementPage from './pages/ApprovalTemplateManagementPage'
 import ApprovalBoxPage from './pages/ApprovalBoxPage'
 import AttendanceCalendarPage from './pages/AttendanceCalendarPage'
 import AttendanceManagementPage from './pages/AttendanceManagementPage'
@@ -8,6 +10,7 @@ import AttendanceCorrectionPage from './pages/AttendanceCorrectionPage'
 import WorkScheduleExceptionPage from './pages/WorkScheduleExceptionPage'
 import DashboardPage from './pages/DashboardPage'
 import DepartmentManagementPage from './pages/DepartmentManagementPage'
+import DocumentTypeManagementPage from './pages/DocumentTypeManagementPage'
 import ErrorPage from './pages/ErrorPage'
 import LoginPage from './pages/LoginPage'
 import MyPage from './pages/MyPage'
@@ -39,14 +42,18 @@ function App() {
           element={<ApprovalBoxPage box="drafts" />}
         />
         <Route path="/approvals/sent" element={<ApprovalBoxPage box="sent" />} />
+        <Route path="/approvals/manage" element={<ApprovalBoxPage box="manage" />} />
         <Route path="/approvals/pending" element={<PendingApprovalPage />} />
         <Route
           path="/approvals/processed"
           element={<ApprovalBoxPage box="processed" />}
         />
         <Route path="/approvals/cc" element={<ApprovalBoxPage box="cc" />} />
+        <Route path="/approval-delegations" element={<ApprovalDelegationPage />} />
         <Route path="/approvals/:approvalId" element={<ApprovalDetailPage />} />
         <Route path="/admin/users" element={<UserManagementPage />} />
+        <Route path="/admin/approval-document-types" element={<DocumentTypeManagementPage />} />
+        <Route path="/approval-templates/manage" element={<ApprovalTemplateManagementPage />} />
         <Route
           path="/admin/departments"
           element={<DepartmentManagementPage />}

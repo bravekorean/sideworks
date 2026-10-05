@@ -26,7 +26,7 @@ class ApprovalSubmissionValidatorTest {
         ReflectionTestUtils.setField(department, "departmentId", 10L);
         department.assignManager(2L);
         User teamLeader = user(2L, UserRole.USER, department);
-        Approval approval = Approval.createDraft(writer, "제목", "내용");
+        Approval approval = Approval.createDraft(writer, "제목", "내용", com.example.sideworks.approval.entity.ApprovalDocumentTypeFixtures.general());
 
         assertThatCode(() -> validator.validateParticipants(
                 approval,
@@ -36,18 +36,25 @@ class ApprovalSubmissionValidatorTest {
     }
 
     @Test
-    void 부서장_관계와_관리_역할이_없는_USER는_결재자로_지정할_수_없다() {
+    void 활성_일반_부서원도_결재자로_지정할_수_있다() {
         User writer = user(1L, UserRole.USER, null);
         Department department = Department.create("개발팀", null);
         ReflectionTestUtils.setField(department, "departmentId", 10L);
         User member = user(2L, UserRole.USER, department);
-        Approval approval = Approval.createDraft(writer, "제목", "내용");
+        Approval approval = Approval.createDraft(writer, "제목", "내용", com.example.sideworks.approval.entity.ApprovalDocumentTypeFixtures.general());
 
-        assertThatThrownBy(() -> validator.validateParticipants(
+        assertThatCode(() -> validator.validateParticipants(
                 approval,
                 List.of(member),
                 List.of()
-        ))
+        )).doesNotThrowAnyException();
+    }
+
+    @Test
+    void 템플릿에_본인이_포함되어도_실제_상신에서는_자기_결재를_거부한다() {
+        User writer = user(1L, UserRole.USER, null);
+        Approval approval = Approval.createDraft(writer, "제목", "내용", com.example.sideworks.approval.entity.ApprovalDocumentTypeFixtures.general());
+        assertThatThrownBy(() -> validator.validateParticipants(approval, List.of(writer), List.of()))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.INVALID_APPROVER);

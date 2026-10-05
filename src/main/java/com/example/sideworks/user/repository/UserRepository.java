@@ -15,6 +15,27 @@ import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
+    @EntityGraph(attributePaths = {"department", "position"})
+    Page<User> findAllByStatusAndDepartment_DepartmentIdOrderByUserNameAscUserIdAsc(
+            UserStatus status, Long departmentId, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"department", "position"})
+    Page<User> findAllByStatusOrderByUserNameAscUserIdAsc(UserStatus status, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"department", "position"})
+    List<User> findAllByUserIdIn(Collection<Long> userIds);
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.loginId = :loginId")
+    Optional<User> lockLeaveOwner(@Param("loginId") String loginId);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.userId = :userId")
+    Optional<User> lockLeaveOwnerById(@Param("userId") Long userId);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.userId = :userId")
+    Optional<User> lockDelegator(@Param("userId") Long userId);
+
 
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.userId = :id")

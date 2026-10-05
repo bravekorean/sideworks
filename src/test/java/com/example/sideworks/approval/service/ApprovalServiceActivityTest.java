@@ -67,7 +67,13 @@ class ApprovalServiceActivityTest {
                 fileStorage,
                 submissionValidator,
                 submissionFactory,
-                org.mockito.Mockito.mock(com.example.sideworks.attendance.service.AttendanceCorrectionService.class)
+                org.mockito.Mockito.mock(com.example.sideworks.attendance.service.AttendanceCorrectionService.class),
+                org.mockito.Mockito.mock(com.example.sideworks.leave.service.LeaveRequestService.class),
+                org.mockito.Mockito.mock(com.example.sideworks.leave.service.LeaveCancellationService.class),
+                org.mockito.Mockito.mock(ApprovalDocumentTypeService.class),
+                org.mockito.Mockito.mock(com.example.sideworks.notification.service.ApprovalNotificationWorkflow.class),
+                org.mockito.Mockito.mock(ApprovalTemplateService.class),
+                org.mockito.Mockito.mock(ApprovalDelegationService.class)
         );
     }
 
@@ -88,6 +94,33 @@ class ApprovalServiceActivityTest {
 
         assertThat(result).isSameAs(expected);
         verify(approvalRepository).findRecentActivitiesByUserId(userId, pageable);
+    }
+
+    @Test
+    void 시스템_관리자는_참여_여부와_관계없이_관리_목록을_조회한다() {
+        User admin = mock(User.class);
+        var pageable = PageRequest.of(0, 20);
+        Page<ApprovalListResponse> expected = Page.empty(pageable);
+        when(userRepository.findByLoginId("admin")).thenReturn(Optional.of(admin));
+        when(admin.getUserRole()).thenReturn(UserRole.SUPER_ADMIN);
+        when(approvalRepository.findForManagement("문서", null, true, pageable)).thenReturn(expected);
+
+        assertThat(approvalService.getManagedApprovals("admin", "문서", null, true, pageable)).isSameAs(expected);
+        verify(approvalRepository).findForManagement("문서", null, true, pageable);
+    }
+
+    @Test
+    void 일반_사용자와_인사관리자는_관리_목록을_조회할_수_없다() {
+        User user = mock(User.class);
+        when(userRepository.findByLoginId("user")).thenReturn(Optional.of(user));
+        for (UserRole role : List.of(UserRole.USER, UserRole.HR_MANAGER)) {
+            when(user.getUserRole()).thenReturn(role);
+            assertThatThrownBy(() -> approvalService.getManagedApprovals("user", null, null, false, PageRequest.of(0, 20)))
+                    .isInstanceOfSatisfying(com.example.sideworks.common.exception.BusinessException.class,
+                            failure -> assertThat(failure.getErrorCode()).isEqualTo(
+                                    com.example.sideworks.common.exception.ErrorCode.APPROVAL_MANAGEMENT_FORBIDDEN));
+        }
+        org.mockito.Mockito.verifyNoInteractions(approvalRepository);
     }
 
     @Test

@@ -4,5 +4,6 @@ public enum ApprovalActionType {
     SUBMITTED,
     APPROVED,
     REJECTED,
-    CANCELED
+    CANCELED,
+    TERMINATED
 }

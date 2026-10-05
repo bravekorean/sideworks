@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class ApprovalDraftRequest {
 
+    private Long documentTypeId;
     private String title;
     private String content;
 }

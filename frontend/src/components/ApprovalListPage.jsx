@@ -21,6 +21,7 @@ const statusLabels = {
   REJECTED: '반려',
   CANCELED: '상신 취소',
   PENDING: '결재 대기',
+  TERMINATED: '관리자 종료',
 }
 
 const statusClassNames = {
@@ -30,6 +31,7 @@ const statusClassNames = {
   REJECTED: 'rejected',
   CANCELED: 'canceled',
   PENDING: 'pending',
+  TERMINATED: 'canceled',
 }
 
 function formatDateTime(value) {
@@ -66,6 +68,7 @@ function ApprovalListPage({
   const [searchQuery, setSearchQuery] = useState('')
   const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
+  const [blockedOnly, setBlockedOnly] = useState(false)
   const [isListLoading, setIsListLoading] = useState(true)
   const [listLoadError, setListLoadError] = useState('')
 
@@ -93,6 +96,7 @@ function ApprovalListPage({
           size: PAGE_SIZE,
           keyword,
           status: statusFilter === 'ALL' ? '' : statusFilter,
+          blockedOnly,
         })
 
         if (isActive) {
@@ -118,7 +122,7 @@ function ApprovalListPage({
     return () => {
       isActive = false
     }
-  }, [box, currentPage, keyword, statusFilter])
+  }, [box, currentPage, keyword, statusFilter, blockedOnly])
 
   const handleStatusChange = (event) => {
     setStatusFilter(event.target.value)
@@ -159,10 +163,18 @@ function ApprovalListPage({
             />
           </label>
 
+          {box === 'manage' && <label className="approval-status-filter">
+            <input type="checkbox" checked={blockedOnly} onChange={(event) => {
+              setBlockedOnly(event.target.checked)
+              setStatusFilter('ALL')
+              setCurrentPage(0)
+            }} />
+            <span>비활성 결재자 미처리 문서만</span>
+          </label>}
           {statusOptions.length > 0 && (
             <label className="approval-status-filter">
               <span>상태</span>
-              <select onChange={handleStatusChange} value={statusFilter}>
+              <select disabled={blockedOnly} onChange={handleStatusChange} value={statusFilter}>
                 <option value="ALL">전체</option>
                 {statusOptions.map((status) => (
                   <option key={status} value={status}>

@@ -50,6 +50,8 @@ public class SecurityConfig {
                         .requestMatchers("/v3/api-docs/**").permitAll()
                         .requestMatchers(HttpMethod.PATCH, "/api/admin/users/*/role")
                         .hasRole("SUPER_ADMIN")
+                        .requestMatchers("/api/admin/approval-document-types", "/api/admin/approval-document-types/**")
+                        .hasRole("SUPER_ADMIN")
                         .requestMatchers("/api/admin/**")
                         .hasAnyRole("SUPER_ADMIN", "HR_MANAGER")
                         // 그 외 API는 JwtAuthenticationFilter에서 인증된 요청만 접근하도록 제한한다.

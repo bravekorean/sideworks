@@ -40,6 +40,10 @@ public class ApprovalLine extends BaseCreatedEntity {
     @JoinColumn(name = "approver_id", nullable = false)
     private User approver;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "original_approver_id")
+    private User originalApprover;
+
     @Column(name = "approval_step", nullable = false)
     private Integer approvalStep;
 
@@ -91,6 +95,15 @@ public class ApprovalLine extends BaseCreatedEntity {
         }
 
         this.approvalStatus = ApprovalLineStatus.PENDING;
+    }
+
+    public void assignDelegate(User delegatee) {
+        if (approvalStatus != ApprovalLineStatus.WAITING && approvalStatus != ApprovalLineStatus.PENDING) {
+            throw new IllegalStateException("아직 처리하지 않은 단계만 위임할 수 있습니다.");
+        }
+        if (originalApprover != null) throw new IllegalStateException("이미 위임된 단계입니다.");
+        originalApprover = approver;
+        approver = delegatee;
     }
 
     private void validatePending() {

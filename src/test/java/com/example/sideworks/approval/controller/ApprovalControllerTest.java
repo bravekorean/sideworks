@@ -44,6 +44,27 @@ class ApprovalControllerTest {
     private JwtTokenProvider jwtTokenProvider;
 
     @Test
+    void 관리_목록의_비활성_필터와_페이지_조건을_서비스에_전달한다() throws Exception {
+        var pageable = PageRequest.of(0, 20);
+        when(approvalService.getManagedApprovals("admin", null, null, true, pageable))
+                .thenReturn(new PageImpl<>(List.of(), pageable, 0));
+        mockMvc.perform(get("/api/approvals/manage").param("blockedOnly", "true")
+                        .principal(new UsernamePasswordAuthenticationToken("admin", null)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("totalElements").value(0));
+        verify(approvalService).getManagedApprovals("admin", null, null, true, pageable);
+    }
+
+    @Test
+    void 관리_목록_권한_거부는_403으로_반환한다() throws Exception {
+        when(approvalService.getManagedApprovals("user", null, null, false, PageRequest.of(0, 20)))
+                .thenThrow(new BusinessException(ErrorCode.APPROVAL_MANAGEMENT_FORBIDDEN));
+        mockMvc.perform(get("/api/approvals/manage")
+                        .principal(new UsernamePasswordAuthenticationToken("user", null)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void 결재_상세_조회에_성공하면_문서와_하위_목록을_반환한다() throws Exception {
         Long approvalId = 10L;
         LocalDateTime now = LocalDateTime.of(2026, 7, 12, 12, 0);
@@ -58,7 +79,7 @@ class ApprovalControllerTest {
                 now,
                 now,
                 now,
-                null
+                null, 1L, "품의서", com.example.sideworks.approval.entity.DocumentBehaviorType.GENERAL
         );
         ApprovalDetailResponse response = ApprovalDetailResponse.of(
                 header,
@@ -76,6 +97,9 @@ class ApprovalControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.approvalId").value(approvalId))
                 .andExpect(jsonPath("$.content").value("본문"))
+                .andExpect(jsonPath("$.documentTypeId").value(1))
+                .andExpect(jsonPath("$.documentTypeName").value("품의서"))
+                .andExpect(jsonPath("$.documentBehaviorType").value("GENERAL"))
                 .andExpect(jsonPath("$.approvalLines").isArray())
                 .andExpect(jsonPath("$.approvalLines").isEmpty())
                 .andExpect(jsonPath("$.ccUsers").isEmpty())

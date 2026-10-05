@@ -3,8 +3,18 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router'
 import { logout } from '../api/authApi'
 import { getMyProfile } from '../api/userApi'
 import { getAttendanceManagementScope } from '../api/attendanceManagementApi'
+import { getNotifications, getUnreadNotificationCount, markNotificationRead, subscribeNotifications } from '../api/notificationApi'
+import { getTemplateDepartments } from '../api/approvalTemplateApi'
 
 const navigationGroups = [
+  {
+    label: '시스템 관리',
+    role: 'SUPER_ADMIN',
+    items: [
+      { id: 'approval-management', label: '결재 관리', icon: 'inbox', path: '/approvals/manage' },
+      { id: 'document-types', label: '문서 종류 관리', icon: 'file', path: '/admin/approval-document-types' },
+    ],
+  },
   {
     label: '근태 관리',
     attendanceManagement: true,
@@ -28,6 +38,8 @@ const navigationGroups = [
       { id: 'pending', label: '결재 대기함', icon: 'inbox', path: '/approvals/pending' },
       { id: 'processed', label: '결재 처리함', icon: 'check', path: '/approvals/processed' },
       { id: 'cc', label: '참조 문서함', icon: 'eye', path: '/approvals/cc' },
+      { id: 'approval-templates', label: '결재선 템플릿 관리', icon: 'file', path: '/approval-templates/manage', templateManagement: true },
+      { id: 'approval-delegations', label: '결재 위임', icon: 'users', path: '/approval-delegations' },
     ],
   },
   {
@@ -86,7 +98,12 @@ function AppShell() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const [currentUser, setCurrentUser] = useState(null)
   const [canViewAttendance, setCanViewAttendance] = useState(false)
+  const [canManageTemplates, setCanManageTemplates] = useState(false)
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
+  const [notificationOpen, setNotificationOpen] = useState(false)
+  const [notifications, setNotifications] = useState([])
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [notificationToast, setNotificationToast] = useState(null)
   const globalSearchInputRef = useRef(null)
   const navigate = useNavigate()
 
@@ -102,6 +119,8 @@ function AppShell() {
         }
         const scope = await getAttendanceManagementScope().catch(() => null)
         if (isActive) setCanViewAttendance(Boolean(scope && (scope.allDepartments || scope.departments.length)))
+        const managedDepartments = await getTemplateDepartments().catch(() => [])
+        if (isActive) setCanManageTemplates(profile.userRole === 'SUPER_ADMIN' || managedDepartments.length > 0)
       } catch {
         if (isActive) {
           sessionStorage.removeItem('accessToken')
@@ -128,6 +147,57 @@ function AppShell() {
     window.addEventListener('keydown', focusGlobalSearch)
     return () => window.removeEventListener('keydown', focusGlobalSearch)
   }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const refresh = () => Promise.all([getNotifications(), getUnreadNotificationCount()])
+      .then(([items, count]) => {
+        if (!controller.signal.aborted) {
+          setNotifications(items)
+          setUnreadCount(count)
+        }
+      }).catch(() => {})
+
+    refresh().then(() => {
+      if (!controller.signal.aborted) {
+        subscribeNotifications({
+          signal: controller.signal,
+          onConnected: refresh,
+          onNotification: (notification) => {
+            setNotifications((items) => [notification, ...items.filter(
+              (item) => item.notificationId !== notification.notificationId,
+            )].slice(0, 20))
+            setUnreadCount((count) => count + 1)
+            setNotificationToast(notification)
+          },
+        })
+      }
+    })
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    if (!notificationToast) return undefined
+    const timer = window.setTimeout(() => setNotificationToast(null), 6000)
+    return () => window.clearTimeout(timer)
+  }, [notificationToast])
+
+  const openNotification = async (notification) => {
+    if (!notification.readAt) {
+      try {
+        await markNotificationRead(notification.notificationId)
+        setNotifications((items) => items.map((item) => item.notificationId === notification.notificationId
+          ? { ...item, readAt: new Date().toISOString() } : item))
+        setUnreadCount((count) => Math.max(0, count - 1))
+      } catch {
+        // 읽음 처리 실패 시 서버 목록과 동기화해 다음 클릭에서 재시도할 수 있게 둔다.
+      }
+    }
+    setNotificationOpen(false)
+    setNotificationToast(null)
+    navigate(notification.approvalTemplateId != null
+      ? '/approval-templates/manage' : `/approvals/${notification.approvalId}`)
+  }
 
   const handleLogout = async () => {
     try {
@@ -187,14 +257,32 @@ function AppShell() {
             type="search"
             value={globalSearchQuery}
           />
-          <kbd>Ctrl K</kbd>
+          <button className="global-search__lookup" type="submit">조회</button>
         </form>
 
         <div className="topbar__actions">
-          <button aria-label="알림" className="icon-button notification-button" type="button">
-            <LineIcon name="bell" size={19} />
-            <span className="notification-dot" />
-          </button>
+          <div className="notification-wrap">
+            <button aria-label="알림" aria-expanded={notificationOpen} aria-haspopup="dialog"
+              className="icon-button notification-button" onClick={() => {
+                setNotificationOpen((open) => !open)
+                setProfileMenuOpen(false)
+                getNotifications().then(setNotifications).catch(() => {})
+                getUnreadNotificationCount().then(setUnreadCount).catch(() => {})
+              }} type="button">
+              <LineIcon name="bell" size={19} />
+              {unreadCount > 0 && <span className="notification-count">{unreadCount > 99 ? '99+' : unreadCount}</span>}
+            </button>
+            {notificationOpen && <section aria-label="알림함" className="notification-panel" role="dialog">
+              <header><strong>알림</strong><button onClick={() => setNotificationOpen(false)} type="button">닫기</button></header>
+              {notifications.length === 0 ? <p className="notification-empty">도착한 알림이 없습니다.</p> :
+                <div className="notification-list">{notifications.map((item) =>
+                  <button className={`notification-item ${item.readAt ? '' : 'is-unread'}`}
+                    key={item.notificationId} onClick={() => openNotification(item)} type="button">
+                    <strong>{item.title}</strong><span>{item.message}</span>
+                    <small>{item.createdAt ? new Date(item.createdAt).toLocaleString('ko-KR') : ''}</small>
+                  </button>)}</div>}
+            </section>}
+          </div>
           <div className="profile-menu-wrap">
             <button
               aria-expanded={profileMenuOpen}
@@ -258,7 +346,7 @@ function AppShell() {
                 <span>{group.label}</span>
                 {group.role && <span className="role-chip">관리자</span>}
               </div>
-              {group.items.map((item) => {
+              {group.items.filter((item) => !item.templateManagement || canManageTemplates).map((item) => {
                 const itemContent = (
                   <>
                     <LineIcon name={item.icon} />
@@ -312,6 +400,14 @@ function AppShell() {
       <main className="main-content">
         <Outlet />
       </main>
+      {notificationToast && <div aria-live="polite" className="notification-toast">
+        <button aria-label="알림 닫기" className="notification-toast__close" onClick={() => setNotificationToast(null)} type="button">×</button>
+        <strong>{notificationToast.title}</strong>
+        <p>{notificationToast.message}</p>
+        <button onClick={() => openNotification(notificationToast)} type="button">
+          {notificationToast.approvalTemplateId != null ? '템플릿 관리로 이동' : '문서 보기'}
+        </button>
+      </div>}
     </div>
   )
 }

@@ -123,8 +123,8 @@ function DashboardPage() {
         <section className="panel pending-panel">
           <div className="panel__header"><div><span className="section-kicker">TO DO</span><h2>결재 대기 문서</h2></div><button className="text-button" onClick={() => navigate('/approvals/pending')} type="button">전체 보기 <span>→</span></button></div>
           <div className="approval-list">
-            {isLoading && <p className="compose-feedback">결재 문서를 불러오는 중입니다.</p>}
-            {!isLoading && pendingApprovals.length === 0 && <p className="cc-user-empty">현재 처리할 결재 문서가 없습니다.</p>}
+            {isLoading && <div className="dashboard-pending-state" role="status">결재 문서를 불러오는 중입니다.</div>}
+            {!isLoading && pendingApprovals.length === 0 && <div className="dashboard-pending-state">현재 처리할 결재 문서가 없습니다.</div>}
             {pendingApprovals.map((approval) => <button className="approval-row" key={approval.approvalId} onClick={() => navigate(`/approvals/${approval.approvalId}`, { state: { from: '/dashboard', fromLabel: '대시보드' } })} type="button">
               <span className="document-mark">결</span>
               <span className="approval-row__main"><strong>{approval.title}</strong><small>AP-{approval.approvalId} · {approval.currentStep}단계</small></span>

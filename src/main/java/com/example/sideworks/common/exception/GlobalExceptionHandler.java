@@ -3,6 +3,8 @@ package com.example.sideworks.common.exception;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.OptimisticLockingFailureException;
+import jakarta.persistence.OptimisticLockException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -29,6 +31,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(errorCode.getStatus())
                 .body(ErrorResponse.from(errorCode));
+    }
+
+    @ExceptionHandler({OptimisticLockingFailureException.class, OptimisticLockException.class})
+    public ResponseEntity<ErrorResponse> handleConcurrentModification(Exception e) {
+        ErrorCode errorCode = ErrorCode.CONCURRENT_MODIFICATION;
+        LOG.atWarn().addKeyValue("event", "OPTIMISTIC_LOCK_CONFLICT").log("Concurrent modification rejected");
+        return ResponseEntity.status(errorCode.getStatus()).body(ErrorResponse.from(errorCode));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

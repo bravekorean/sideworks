@@ -1,6 +1,7 @@
 package com.example.sideworks.approval.dto;
 
 import com.example.sideworks.approval.entity.ApprovalStatus;
+import com.example.sideworks.approval.entity.DocumentBehaviorType;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -21,4 +22,7 @@ public class ApprovalDetailHeaderResponse {
     private final LocalDateTime updatedAt;
     private final LocalDateTime submittedAt;
     private final LocalDateTime completedAt;
+    private final Long documentTypeId;
+    private final String documentTypeName;
+    private final DocumentBehaviorType documentBehaviorType;
 }

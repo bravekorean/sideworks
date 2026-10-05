@@ -3,12 +3,14 @@ package com.example.sideworks.attendance.service;
 import com.example.sideworks.approval.entity.*;
 import com.example.sideworks.approval.attachment.service.ApprovalAttachmentService;
 import com.example.sideworks.approval.factory.ApprovalSubmissionFactory;
+import com.example.sideworks.approval.service.ApprovalDocumentTypeService;
 import com.example.sideworks.approval.repository.*;
 import com.example.sideworks.attendance.entity.*;
 import com.example.sideworks.attendance.repository.*;
 import com.example.sideworks.common.exception.*;
 import com.example.sideworks.user.entity.*;
 import com.example.sideworks.user.repository.UserRepository;
+import com.example.sideworks.notification.service.ApprovalNotificationWorkflow;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,8 @@ public class AttendanceCorrectionService {
     private final ApprovalSubmissionFactory submissionFactory;
     private final Clock clock;
     private final ApprovalAttachmentService attachments;
+    private final ApprovalDocumentTypeService documentTypes;
+    private final ApprovalNotificationWorkflow notificationWorkflow;
 
     public record DocumentInput(String title, Input correction) {}
 
@@ -102,13 +106,15 @@ public class AttendanceCorrectionService {
                 + "\n기존 퇴근: " + display(original == null ? null : original.getCheckOutAt())
                 + "\n요청 출근: " + input.checkInAt() + "\n요청 퇴근: " + display(input.checkOutAt())
                 + "\n사유: " + input.reason().trim();
-        Approval approval = approvals.save(Approval.createDraft(actor, document.title().trim(), content));
+        Approval approval = approvals.save(Approval.createDraft(actor, document.title().trim(), content,
+                documentTypes.requireAttendanceCorrection()));
         // 첨부는 DRAFT에서 저장한다. 업로드·상신 중 실패하면 동일 트랜잭션의 문서와 파일을 롤백한다.
         if (files != null && !files.isEmpty()) {
             attachments.upload(approval.getApprovalId(), login, files);
         }
         approval.submit(LocalDateTime.now(clock));
-        lines.saveAll(submissionFactory.createLines(approval, List.of(approver)));
+        var approvalLines = submissionFactory.createLines(approval, List.of(approver), List.of());
+        lines.saveAll(approvalLines);
         approvalHistories.save(submissionFactory.createHistory(approval));
         try {
             corrections.saveAndFlush(AttendanceCorrection.create(actor, approval, input.date(), original,
@@ -116,6 +122,7 @@ public class AttendanceCorrectionService {
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(ErrorCode.ATTENDANCE_CORRECTION_PENDING);
         }
+        notificationWorkflow.onSubmitted(approval, approvalLines.getFirst().getApprover(), List.of());
         return approval.getApprovalId();
     }
 

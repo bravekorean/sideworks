@@ -33,11 +33,13 @@ class AttendanceCorrectionServiceTest {
     @Mock ApprovalSubmissionFactory submissionFactory;
     @Mock com.example.sideworks.approval.attachment.service.ApprovalAttachmentService attachments;
     AttendanceCorrectionService service;
+    @Mock com.example.sideworks.approval.service.ApprovalDocumentTypeService documentTypes;
 
     @BeforeEach void setUp() {
         service = new AttendanceCorrectionService(users, attendances, corrections, histories, policies,
                 approvals, lines, approvalHistories, submissionFactory,
-                Clock.fixed(Instant.parse("2026-09-16T09:00:00Z"), ZoneId.of("Asia/Seoul")), attachments);
+                Clock.fixed(Instant.parse("2026-09-16T09:00:00Z"), ZoneId.of("Asia/Seoul")), attachments, documentTypes,
+                org.mockito.Mockito.mock(com.example.sideworks.notification.service.ApprovalNotificationWorkflow.class));
     }
 
     @Test void 최종승인시_원본을_수정하고_이력을_저장한다() {
@@ -147,11 +149,19 @@ class AttendanceCorrectionServiceTest {
         User hr = user(2L, UserRole.HR_MANAGER);
         when(users.findByLoginId("employee")).thenReturn(Optional.of(employee));
         when(users.findById(2L)).thenReturn(Optional.of(hr));
-        Approval draft = Approval.createDraft(employee, "출근 기록 정정", "내용");
+        var type = com.example.sideworks.approval.entity.ApprovalDocumentTypeFixtures.type(
+                6L, "ATTENDANCE_CORRECTION", com.example.sideworks.approval.entity.DocumentBehaviorType.ATTENDANCE_CORRECTION, true);
+        when(documentTypes.requireAttendanceCorrection()).thenReturn(type);
+        Approval draft = Approval.createDraft(employee, "출근 기록 정정", "내용", type);
+        lenient().when(submissionFactory.createLines(any(), any(), any())).thenReturn(List.of(
+                com.example.sideworks.approval.entity.ApprovalLine.create(draft, hr, 1,
+                        com.example.sideworks.approval.entity.ApprovalLineStatus.PENDING)));
         ReflectionTestUtils.setField(draft, "approvalId", 30L);
         when(approvals.save(any(Approval.class))).thenAnswer(invocation -> {
             Approval submitted = invocation.getArgument(0);
             assertThat(submitted.getTitle()).isEqualTo("출근 기록 정정");
+            assertThat(submitted.getDocumentType()).isSameAs(type);
+            assertThat(submitted.getLegacyDocumentType()).isEqualTo("ATTENDANCE_CORRECTION");
             assertThat(submitted.getContent()).contains("출근 누락", "2026-09-15");
             return draft;
         });
