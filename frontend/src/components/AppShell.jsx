@@ -5,6 +5,7 @@ import { getMyProfile } from '../api/userApi'
 import { getAttendanceManagementScope } from '../api/attendanceManagementApi'
 import { getNotifications, getUnreadNotificationCount, markNotificationRead, subscribeNotifications } from '../api/notificationApi'
 import { getTemplateDepartments } from '../api/approvalTemplateApi'
+import { invalidateAuthentication, isAuthenticationError } from '../auth/browserSession'
 
 const navigationGroups = [
   {
@@ -97,6 +98,8 @@ function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const [currentUser, setCurrentUser] = useState(null)
+  const [profileError, setProfileError] = useState(false)
+  const [logoutError, setLogoutError] = useState('')
   const [canViewAttendance, setCanViewAttendance] = useState(false)
   const [canManageTemplates, setCanManageTemplates] = useState(false)
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
@@ -121,10 +124,14 @@ function AppShell() {
         if (isActive) setCanViewAttendance(Boolean(scope && (scope.allDepartments || scope.departments.length)))
         const managedDepartments = await getTemplateDepartments().catch(() => [])
         if (isActive) setCanManageTemplates(profile.userRole === 'SUPER_ADMIN' || managedDepartments.length > 0)
-      } catch {
+      } catch (error) {
         if (isActive) {
-          sessionStorage.removeItem('accessToken')
-          navigate('/login', { replace: true })
+          if (isAuthenticationError(error)) {
+            invalidateAuthentication()
+            navigate('/login', { replace: true })
+          } else {
+            setProfileError(true)
+          }
         }
       }
     }
@@ -200,12 +207,13 @@ function AppShell() {
   }
 
   const handleLogout = async () => {
+    setLogoutError('')
     try {
       await logout()
-    } finally {
-      sessionStorage.removeItem('accessToken')
       setProfileMenuOpen(false)
       navigate('/login', { replace: true })
+    } catch {
+      setLogoutError('로그아웃을 완료하지 못했습니다. 연결을 확인하고 다시 시도해 주세요.')
     }
   }
 
@@ -227,6 +235,13 @@ function AppShell() {
   const userName = currentUser?.userName ?? '사용자'
   const userRole = currentUser?.userRole ?? 'USER'
   const avatarText = userName.slice(0, 2)
+
+  if (!currentUser) {
+    return <main className="auth-status" role="status">
+      <p>{profileError ? '내 정보를 불러오지 못했습니다.' : '내 정보를 불러오고 있습니다.'}</p>
+      {profileError && <button type="button" onClick={() => window.location.reload()}>다시 시도</button>}
+    </main>
+  }
 
   return (
     <div className="app-frame">
@@ -301,6 +316,7 @@ function AppShell() {
 
             {profileMenuOpen && (
               <div className="profile-dropdown" role="menu">
+                {logoutError && <p className="profile-dropdown__error" role="alert">{logoutError}</p>}
                 <header>
                   <span className="avatar">{avatarText}</span>
                   <div>

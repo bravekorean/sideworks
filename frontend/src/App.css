@@ -1,3 +1,9 @@
+.profile-dropdown__error {
+  padding: 8px 12px;
+  color: var(--red);
+  font-size: 12px;
+}
+
 .app-frame {
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);

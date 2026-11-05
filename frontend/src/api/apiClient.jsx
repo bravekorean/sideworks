@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { getAccessToken, invalidateAuthentication, isAuthenticationError, refreshAccessToken } from '../auth/browserSession'
 
 const API_BASE_URL = '/api'
 
@@ -6,8 +7,6 @@ const apiClient = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
 })
-
-let refreshPromise = null
 
 function isAuthRequest(url = '') {
   return ['/auth/login', '/auth/refresh', '/auth/logout'].some((path) =>
@@ -38,40 +37,23 @@ function isAccessTokenExpired(accessToken) {
 }
 
 function redirectToLogin() {
-  sessionStorage.removeItem('accessToken')
+  invalidateAuthentication()
 
   if (window.location.pathname !== '/login') {
     window.location.replace('/login')
   }
 }
 
-async function refreshAccessToken() {
-  const response = await axios.post(`${API_BASE_URL}/auth/refresh`, null, {
-    withCredentials: true,
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  })
-
-  const newAccessToken = response.data.accessToken
-  sessionStorage.setItem('accessToken', newAccessToken)
-
-  return newAccessToken
-}
-
 // fetch 스트림은 Axios 인터셉터를 통과하지 않으므로 같은 재발급 경로를 재사용한다.
 export async function getValidAccessToken(forceRefresh = false) {
-  const accessToken = sessionStorage.getItem('accessToken')
+  const accessToken = getAccessToken()
   if (!forceRefresh && accessToken && !isAccessTokenExpired(accessToken)) return accessToken
-  if (!refreshPromise) {
-    refreshPromise = refreshAccessToken().finally(() => { refreshPromise = null })
-  }
-  return refreshPromise
+  return refreshAccessToken()
 }
 
 apiClient.interceptors.request.use(
   (config) => {
-    const accessToken = sessionStorage.getItem('accessToken')
+    const accessToken = getAccessToken()
 
     if (accessToken) {
       config.headers.Authorization = `Bearer ${accessToken}`
@@ -87,7 +69,7 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config
     const status = error.response?.status
-    const currentAccessToken = sessionStorage.getItem('accessToken')
+    const currentAccessToken = getAccessToken()
     const shouldRefresh =
       status === 401 ||
       (status === 403 && isAccessTokenExpired(currentAccessToken))
@@ -104,19 +86,13 @@ apiClient.interceptors.response.use(
     originalRequest._retry = true
 
     try {
-      if (!refreshPromise) {
-        refreshPromise = refreshAccessToken().finally(() => {
-          refreshPromise = null
-        })
-      }
-
-      const newAccessToken = await refreshPromise
+      const newAccessToken = await refreshAccessToken()
       originalRequest.headers = originalRequest.headers ?? {}
       originalRequest.headers.Authorization = `Bearer ${newAccessToken}`
 
       return apiClient(originalRequest)
     } catch (refreshError) {
-      redirectToLogin()
+      if (isAuthenticationError(refreshError)) redirectToLogin()
       return Promise.reject(refreshError)
     }
   },
