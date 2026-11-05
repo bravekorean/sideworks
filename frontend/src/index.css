@@ -24,6 +24,16 @@
   --red: #ef6a73;
 }
 
+.auth-status {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 16px;
+  padding: 24px;
+  color: var(--text-secondary);
+}
+
 * {
   box-sizing: border-box;
 }

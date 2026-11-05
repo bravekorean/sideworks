@@ -1,14 +1,9 @@
-import apiClient from './apiClient'
+import { loginWithBrowserSession, logoutBrowserSession } from '../auth/browserSession'
 
 export async function login(loginId, password) {
-  const response = await apiClient.post('/auth/login', {
-    loginId,
-    password,
-  })
-
-  return response.data
+  return loginWithBrowserSession(loginId, password)
 }
 
 export async function logout() {
-  await apiClient.post('/auth/logout')
+  await logoutBrowserSession()
 }

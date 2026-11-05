@@ -10,28 +10,29 @@ function LoginPage() {
   const [rememberLoginId, setRememberLoginId] = useState(false)
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [feedback, setFeedback] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
   const handleSubmit = async (event) => {
     event.preventDefault()
+    if (submitting) return
 
     if (!loginId.trim() || !password) {
       setFeedback('로그인 ID와 비밀번호를 모두 입력해 주세요.')
       return
     }
 
+    setSubmitting(true)
     try {
-      const loginResponse = await login(loginId, password)
-
-      sessionStorage.setItem('accessToken', loginResponse.accessToken)
-
-      setFeedback(`${loginResponse.userName}님, 로그인되었습니다.`)
-      navigate('/dashboard')
+      await login(loginId, password)
+      navigate('/dashboard', { replace: true })
     } catch (error) {
       const message =
         error.response?.data?.message ??
         '로그인 요청 중 오류가 발생했습니다.'
 
       setFeedback(message)
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -132,8 +133,8 @@ function LoginPage() {
             {feedback}
           </p>
 
-          <button className="login-submit-button" type="submit">
-            로그인
+          <button className="login-submit-button" type="submit" disabled={submitting}>
+            {submitting ? '로그인 중…' : '로그인'}
           </button>
 
           <Link className="login-preview-link" to="/dashboard">

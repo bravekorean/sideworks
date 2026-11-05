@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { logout } from '../api/authApi'
+import { endBrowserSession } from '../auth/browserSession'
 import {
   changeMyPassword,
   getMyProfile,
@@ -173,9 +174,7 @@ const handlePasswordSubmit = async (event) => {
 
     try {
       await withdrawMyAccount(password)
-      await logout().catch(() => undefined)
-
-      sessionStorage.removeItem('accessToken')
+      await logout().catch(() => endBrowserSession())
       navigate('/login', { replace: true })
     } catch (error) {
       const message =
