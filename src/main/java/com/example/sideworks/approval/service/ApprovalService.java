@@ -5,6 +5,7 @@ import com.example.sideworks.approval.attachment.repository.ApprovalAttachmentRe
 import com.example.sideworks.approval.attachment.storage.FileStorage;
 import com.example.sideworks.approval.dto.ApprovalCcResponse;
 import com.example.sideworks.approval.dto.ApprovalActivityResponse;
+import com.example.sideworks.approval.dto.ApprovalDashboardResponse;
 import com.example.sideworks.approval.dto.ApprovalDetailHeaderResponse;
 import com.example.sideworks.approval.dto.ApprovalDetailResponse;
 import com.example.sideworks.approval.dto.ApprovalDecisionRequest;
@@ -36,6 +37,7 @@ import com.example.sideworks.user.repository.UserRepository;
 import com.example.sideworks.notification.service.ApprovalNotificationWorkflow;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,6 +57,8 @@ import java.util.Optional;
 public class ApprovalService {
 
     private static final int MAX_APPROVAL_COMMENT_LENGTH = 2000;
+    private static final int DASHBOARD_PENDING_SIZE = 4;
+    private static final int DASHBOARD_ACTIVITY_SIZE = 5;
 
     private final ApprovalRepository approvalRepository;
     private final UserRepository userRepository;
@@ -72,6 +76,20 @@ public class ApprovalService {
     private final ApprovalNotificationWorkflow notificationWorkflow;
     private final ApprovalTemplateService approvalTemplateService;
     private final ApprovalDelegationService delegationService;
+
+    public ApprovalDashboardResponse getDashboard(String loginId) {
+        User user = findUserByLoginId(loginId);
+        Long userId = user.getUserId();
+        Page<ApprovalListResponse> pending = approvalRepository.findPendingByApproverId(
+                userId, null, PageRequest.of(0, DASHBOARD_PENDING_SIZE));
+        ApprovalDashboardResponse.Summary summary = new ApprovalDashboardResponse.Summary(
+                pending.getTotalElements(),
+                approvalRepository.countInProgressByWriterId(userId),
+                approvalRepository.countDraftsByWriterId(userId),
+                approvalRepository.countCcByUserId(userId));
+        return new ApprovalDashboardResponse(summary, pending.getContent(),
+                approvalRepository.findLatestActivitiesByUserId(userId, DASHBOARD_ACTIVITY_SIZE));
+    }
 
     public Page<ApprovalListResponse> getManagedApprovals(String loginId, String keyword,
                                                          ApprovalStatus status, boolean blockedOnly, Pageable pageable) {

@@ -1,5 +1,10 @@
 import apiClient from './apiClient'
 
+export async function getApprovalDashboard() {
+  const response = await apiClient.get('/approvals/dashboard')
+  return response.data
+}
+
 const approvalBoxEndpoints = {
   drafts: '/approvals/drafts',
   sent: '/approvals/sent',

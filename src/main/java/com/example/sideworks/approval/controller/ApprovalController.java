@@ -2,6 +2,7 @@ package com.example.sideworks.approval.controller;
 
 import com.example.sideworks.approval.dto.ApprovalCreateResponse;
 import com.example.sideworks.approval.dto.ApprovalActivityResponse;
+import com.example.sideworks.approval.dto.ApprovalDashboardResponse;
 import com.example.sideworks.approval.dto.ApprovalDetailResponse;
 import com.example.sideworks.approval.dto.ApprovalDecisionRequest;
 import com.example.sideworks.approval.dto.ApprovalDraftRequest;
@@ -31,6 +32,12 @@ import org.springframework.web.bind.annotation.*;
 public class ApprovalController {
 
     private final ApprovalService approvalService;
+
+    @GetMapping("/dashboard")
+    @Operation(summary = "내 결재 대시보드 조회", description = "현재 사용자의 결재함 건수, 대기 문서 최대 4개, 최근 활동 최대 5개를 반환합니다. 관리자도 본인의 참여 범위만 조회합니다.")
+    public ResponseEntity<ApprovalDashboardResponse> getDashboard(Authentication authentication) {
+        return ResponseEntity.ok(approvalService.getDashboard(authentication.getName()));
+    }
 
     @PostMapping
     @Operation(summary = "결재 문서 임시저장", description = "현재 사용자를 작성자로 하여 새로운 결재 문서를 임시저장합니다.")

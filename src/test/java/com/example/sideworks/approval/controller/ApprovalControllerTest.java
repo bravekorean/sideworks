@@ -3,6 +3,7 @@ package com.example.sideworks.approval.controller;
 import com.example.sideworks.approval.dto.ApprovalDetailHeaderResponse;
 import com.example.sideworks.approval.dto.ApprovalDetailResponse;
 import com.example.sideworks.approval.dto.ApprovalActivityResponse;
+import com.example.sideworks.approval.dto.ApprovalDashboardResponse;
 import com.example.sideworks.approval.dto.ApprovalListResponse;
 import com.example.sideworks.approval.entity.ApprovalActionType;
 import com.example.sideworks.approval.entity.ApprovalStatus;
@@ -42,6 +43,30 @@ class ApprovalControllerTest {
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @Test
+    void 대시보드는_요청의_대상_ID가_아닌_인증_사용자로_조회한다() throws Exception {
+        var pending = new ApprovalListResponse(10L, "구매 요청", 3L, "작성자",
+                ApprovalStatus.IN_PROGRESS, 1, null, null, null);
+        var activity = new ApprovalActivityResponse(31L, 10L, "구매 요청", 2L, "결재자",
+                1, ApprovalActionType.APPROVED, LocalDateTime.of(2026, 11, 25, 9, 0));
+        when(approvalService.getDashboard("viewer")).thenReturn(new ApprovalDashboardResponse(
+                new ApprovalDashboardResponse.Summary(7, 3, 4, 5), List.of(pending), List.of(activity)));
+
+        mockMvc.perform(get("/api/approvals/dashboard")
+                        .param("userId", "999").param("size", "1000")
+                        .principal(authentication()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary.pending").value(7))
+                .andExpect(jsonPath("$.summary.inProgress").value(3))
+                .andExpect(jsonPath("$.summary.drafts").value(4))
+                .andExpect(jsonPath("$.summary.cc").value(5))
+                .andExpect(jsonPath("$.pendingApprovals[0].approvalId").value(10))
+                .andExpect(jsonPath("$.recentActivities[0].approvalHistoryId").value(31))
+                .andExpect(jsonPath("$.recentActivities[0].createdAt").value("2026-11-25T09:00:00"))
+                .andExpect(jsonPath("$.content").doesNotExist());
+        verify(approvalService).getDashboard("viewer");
+    }
 
     @Test
     void 관리_목록의_비활성_필터와_페이지_조건을_서비스에_전달한다() throws Exception {

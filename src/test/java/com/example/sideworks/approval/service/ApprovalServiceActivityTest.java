@@ -30,6 +30,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class ApprovalServiceActivityTest {
@@ -94,6 +96,68 @@ class ApprovalServiceActivityTest {
 
         assertThat(result).isSameAs(expected);
         verify(approvalRepository).findRecentActivitiesByUserId(userId, pageable);
+    }
+
+    @Test
+    void 대시보드는_로그인_사용자의_건수와_제한된_목록만_조회한다() {
+        User user = mock(User.class);
+        var pendingItem = new ApprovalListResponse(10L, "구매 요청", 3L, "작성자",
+                com.example.sideworks.approval.entity.ApprovalStatus.IN_PROGRESS,
+                1, null, null, null);
+        var activity = new ApprovalActivityResponse(30L, 10L, "구매 요청", 2L, "결재자", 1,
+                com.example.sideworks.approval.entity.ApprovalActionType.APPROVED, null);
+        var pendingPage = new PageImpl<>(List.of(pendingItem), PageRequest.of(0, 4), 7);
+        when(userRepository.findByLoginId("viewer")).thenReturn(Optional.of(user));
+        when(user.getUserId()).thenReturn(2L);
+        when(approvalRepository.findPendingByApproverId(2L, null, PageRequest.of(0, 4))).thenReturn(pendingPage);
+        when(approvalRepository.countInProgressByWriterId(2L)).thenReturn(3L);
+        when(approvalRepository.countDraftsByWriterId(2L)).thenReturn(4L);
+        when(approvalRepository.countCcByUserId(2L)).thenReturn(5L);
+        when(approvalRepository.findLatestActivitiesByUserId(2L, 5)).thenReturn(List.of(activity));
+
+        var result = approvalService.getDashboard("viewer");
+
+        assertThat(result.summary().pending()).isEqualTo(7);
+        assertThat(result.summary().inProgress()).isEqualTo(3);
+        assertThat(result.summary().drafts()).isEqualTo(4);
+        assertThat(result.summary().cc()).isEqualTo(5);
+        assertThat(result.pendingApprovals()).containsExactly(pendingItem);
+        assertThat(result.recentActivities()).containsExactly(activity);
+        verify(userRepository).findByLoginId("viewer");
+        verify(approvalRepository).findPendingByApproverId(2L, null, PageRequest.of(0, 4));
+        verify(approvalRepository).countInProgressByWriterId(2L);
+        verify(approvalRepository).countDraftsByWriterId(2L);
+        verify(approvalRepository).countCcByUserId(2L);
+        verify(approvalRepository).findLatestActivitiesByUserId(2L, 5);
+        verifyNoMoreInteractions(userRepository, approvalRepository);
+    }
+
+    @Test
+    void 대시보드에_문서가_없으면_건수는_0이고_목록은_비어있다() {
+        User user = mock(User.class);
+        when(userRepository.findByLoginId("viewer")).thenReturn(Optional.of(user));
+        when(user.getUserId()).thenReturn(2L);
+        when(approvalRepository.findPendingByApproverId(2L, null, PageRequest.of(0, 4)))
+                .thenReturn(Page.empty(PageRequest.of(0, 4)));
+        when(approvalRepository.findLatestActivitiesByUserId(2L, 5)).thenReturn(List.of());
+
+        var result = approvalService.getDashboard("viewer");
+
+        assertThat(result.summary()).isEqualTo(
+                new com.example.sideworks.approval.dto.ApprovalDashboardResponse.Summary(0, 0, 0, 0));
+        assertThat(result.pendingApprovals()).isEmpty();
+        assertThat(result.recentActivities()).isEmpty();
+    }
+
+    @Test
+    void 대시보드_사용자가_존재하지_않으면_문서를_조회하지_않는다() {
+        when(userRepository.findByLoginId("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> approvalService.getDashboard("missing"))
+                .isInstanceOfSatisfying(com.example.sideworks.common.exception.BusinessException.class,
+                        failure -> assertThat(failure.getErrorCode()).isEqualTo(
+                                com.example.sideworks.common.exception.ErrorCode.USER_NOT_FOUND));
+        verifyNoInteractions(approvalRepository);
     }
 
     @Test

@@ -29,6 +29,14 @@ public interface ApprovalRepositoryCustom {
 
     Page<ApprovalActivityResponse> findRecentActivitiesByUserId(Long userId, Pageable pageable);
 
+    long countInProgressByWriterId(Long writerId);
+
+    long countDraftsByWriterId(Long writerId);
+
+    long countCcByUserId(Long userId);
+
+    List<ApprovalActivityResponse> findLatestActivitiesByUserId(Long userId, int limit);
+
     Page<ApprovalListResponse> searchApprovals(
             Long userId,
             boolean searchAll,

@@ -14,6 +14,7 @@ import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.core.types.ConstructorExpression;
 import com.querydsl.core.types.Projections;
 import com.querydsl.jpa.JPAExpressions;
+import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -33,6 +34,54 @@ import static com.example.sideworks.approval.entity.QApprovalLine.approvalLine;
 public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
 
     private final JPAQueryFactory queryFactory;
+
+    @Override
+    public long countInProgressByWriterId(Long writerId) {
+        Long total = queryFactory
+                .select(approval.count())
+                .from(approval)
+                .join(approval.writer)
+                .where(
+                        approval.writer.userId.eq(writerId),
+                        approval.approvalStatus.eq(ApprovalStatus.IN_PROGRESS)
+                )
+                .fetchOne();
+        return total == null ? 0L : total;
+    }
+
+    @Override
+    public long countDraftsByWriterId(Long writerId) {
+        Long total = queryFactory
+                .select(approval.count())
+                .from(approval)
+                .join(approval.writer)
+                .where(
+                        approval.writer.userId.eq(writerId),
+                        approval.approvalStatus.eq(ApprovalStatus.DRAFT)
+                )
+                .fetchOne();
+        return total == null ? 0L : total;
+    }
+
+    @Override
+    public long countCcByUserId(Long userId) {
+        Long total = queryFactory
+                .select(approvalCc.count())
+                .from(approvalCc)
+                .join(approvalCc.approval, approval)
+                .join(approval.writer)
+                .where(approvalCc.ccUser.userId.eq(userId))
+                .fetchOne();
+        return total == null ? 0L : total;
+    }
+
+    @Override
+    public List<ApprovalActivityResponse> findLatestActivitiesByUserId(Long userId, int limit) {
+        if (limit < 1) {
+            throw new IllegalArgumentException("최근 활동 조회 개수는 1 이상이어야 합니다.");
+        }
+        return recentActivitiesQuery(userId).limit(limit).fetch();
+    }
 
     @Override
     public Page<ApprovalListResponse> findForManagement(String keyword, ApprovalStatus status,
@@ -245,7 +294,24 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
 
     @Override
     public Page<ApprovalActivityResponse> findRecentActivitiesByUserId(Long userId, Pageable pageable) {
-        List<ApprovalActivityResponse> content = queryFactory
+        List<ApprovalActivityResponse> content = recentActivitiesQuery(userId)
+                .offset(pageable.getOffset())
+                .limit(pageable.getPageSize())
+                .fetch();
+
+        Long total = queryFactory
+                .select(approvalHistory.count())
+                .from(approvalHistory)
+                .join(approvalHistory.approval, approval)
+                .where(accessibleByUser(userId))
+                .fetchOne();
+
+        return toPage(content, pageable, total);
+    }
+
+    // 두 조회에서 접근 범위와 정렬이 달라지지 않도록 목록 쿼리를 공유한다.
+    private JPAQuery<ApprovalActivityResponse> recentActivitiesQuery(Long userId) {
+        return queryFactory
                 .select(Projections.constructor(
                         ApprovalActivityResponse.class,
                         approvalHistory.approvalHistoryId,
@@ -264,19 +330,7 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
                 .orderBy(
                         approvalHistory.createdAt.desc(),
                         approvalHistory.approvalHistoryId.desc()
-                )
-                .offset(pageable.getOffset())
-                .limit(pageable.getPageSize())
-                .fetch();
-
-        Long total = queryFactory
-                .select(approvalHistory.count())
-                .from(approvalHistory)
-                .join(approvalHistory.approval, approval)
-                .where(accessibleByUser(userId))
-                .fetchOne();
-
-        return toPage(content, pageable, total);
+                );
     }
 
     @Override
