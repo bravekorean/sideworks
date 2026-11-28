@@ -188,15 +188,13 @@ class LockContentionIntegrationTest {
         whileHoldingLock(
                 () -> approvals.findByIdForUpdate(approvalId).orElseThrow(),
                 () -> {
-                    long start = System.nanoTime();
+                    // 잠금을 기다렸다면 대기 한도 초과(1205)로 끝난다. whileHoldingLock은 이 판정이 끝날 때까지
+                    // 잠금 보유 트랜잭션이 살아 있는지 확인하므로, 잠금이 걸린 동안 권한 오류로 끝났음을 보장한다.
+                    // 시간 단언은 CI 스케줄링에 흔들리므로 두지 않는다. 잠금 호출이 없는지는 단위 테스트가 확인한다.
                     Throwable failure = catchThrowable(() -> approvalService.terminateApproval(
                             approvalId, "terminate-lock-writer", new ApprovalTerminateRequest("사유")));
-                    long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
                     assertThat(failure).isInstanceOfSatisfying(BusinessException.class, error ->
                             assertThat(error.getErrorCode()).isEqualTo(ErrorCode.APPROVAL_TERMINATE_FORBIDDEN));
-                    // 잠금 대기 한도(2초)보다 충분히 짧아야 잠금을 기다리지 않은 것이다.
-                    assertThat(elapsedMs).isLessThan(1_000L);
-                    System.out.printf("forbidden termination while document locked: %d ms%n", elapsedMs);
                 });
     }
 
