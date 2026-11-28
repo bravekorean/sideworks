@@ -21,6 +21,13 @@ import java.time.LocalDateTime;
                         name = "uk_approval_linetbl_approval_approver",
                         columnNames = {"approval_id", "approver_id"}
                 )
+        },
+        // 처리함 최신순 첫 페이지를 정렬 없이 읽기 위한 인덱스. 실제 DB는 database/migrations로 반영한다.
+        indexes = {
+                @Index(
+                        name = "idx_approval_linetbl_approver_processed",
+                        columnList = "approver_id, processed_at DESC, approval_line_id DESC, approval_status, approval_id"
+                )
         }
 )
 @Getter

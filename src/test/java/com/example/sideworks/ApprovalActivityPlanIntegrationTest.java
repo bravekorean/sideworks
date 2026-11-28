@@ -206,6 +206,16 @@ class ApprovalActivityPlanIntegrationTest {
     private void seedActivityData() {
         new TransactionTemplate(transactions).executeWithoutResult(
                 ignored -> DashboardBenchmarkFixture.seed(jdbc, 20_000));
+        // The entity now declares this index; drop it so the baseline matches the pre-index schema.
+        // Both tests share one schema, so drop it only while it still exists.
+        Integer declared = jdbc.queryForObject("""
+                select count(*) from information_schema.statistics
+                where table_schema=database() and table_name='approval_historytbl'
+                  and index_name='idx_approval_historytbl_created'
+                """, Integer.class);
+        if (declared != null && declared > 0) {
+            jdbc.execute("drop index idx_approval_historytbl_created on approval_historytbl");
+        }
         for (String table : List.of("approvaltbl", "approval_linetbl", "approval_cctbl", "approval_historytbl")) {
             jdbc.queryForList("analyze table " + table);
         }

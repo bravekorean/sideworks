@@ -126,7 +126,15 @@ class ProcessedApprovalIndexIntegrationTest {
                     where l.approval_status='APPROVED'
                     """);
         });
+        restorePreIndexBaseline();
         jdbc.queryForList("analyze table approvaltbl, usertbl");
+    }
+
+    // The entity now declares the time-first index. Recreate the earlier schema so the
+    // baseline keeps measuring the approver FK index alone; the FK needs an index before the drop.
+    private void restorePreIndexBaseline() {
+        jdbc.execute("create index bench_baseline_approver on approval_linetbl (approver_id)");
+        jdbc.execute("drop index idx_approval_linetbl_approver_processed on approval_linetbl");
     }
 
     private void verifyRepository(Variant variant, long user, int page, ApprovalStatus status) {

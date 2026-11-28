@@ -8,7 +8,16 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "approval_historytbl")
+@Table(
+        name = "approval_historytbl",
+        // 대시보드 최근 활동의 최신 구간 탐색용 인덱스. 실제 DB는 database/migrations로 반영한다.
+        indexes = {
+                @Index(
+                        name = "idx_approval_historytbl_created",
+                        columnList = "created_at DESC, approval_history_id DESC"
+                )
+        }
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ApprovalHistory extends BaseCreatedEntity {
