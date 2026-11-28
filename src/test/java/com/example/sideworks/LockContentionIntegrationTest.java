@@ -1,6 +1,7 @@
 package com.example.sideworks;
 
 import com.example.sideworks.approval.dto.ApprovalDecisionRequest;
+import com.example.sideworks.approval.dto.ApprovalTerminateRequest;
 import com.example.sideworks.approval.entity.Approval;
 import com.example.sideworks.approval.entity.ApprovalDocumentType;
 import com.example.sideworks.approval.entity.ApprovalLine;
@@ -35,6 +36,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.AopTestUtils;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.MySQLContainer;
 
@@ -110,6 +112,113 @@ class LockContentionIntegrationTest {
                 approvalId)).isEqualTo(1);
         assertThat(count("select count(*) from notificationtbl where approval_id = ? and event_key = 'FINAL_APPROVED'",
                 approvalId)).isEqualTo(1);
+    }
+
+    @Test
+    void waitingNextStepApproverSeesLineActivatedByLeader() throws Exception {
+        Long approvalId = transactions.execute(ignored -> createTwoStepApproval(
+                createUser("snapshot-writer"), createUser("snapshot-first"), createUser("snapshot-second"),
+                createGeneralType("SNAPSHOT_GENERAL")));
+        holdLeaderInsideApproval(false);
+
+        // 후속 요청은 선행이 1단계를 커밋하기 전에 시작해 문서 잠금을 기다린다.
+        FollowerResult follower = leaderThenFollower("approvaltbl",
+                () -> approve(approvalId, "snapshot-first"),
+                () -> approve(approvalId, "snapshot-second"));
+
+        assertThat(follower.leaderFailure()).isNull();
+        assertFollowerWaitedForLeader(follower);
+        // 잠금을 얻은 시점에는 2단계가 PENDING이므로 승인돼야 한다.
+        assertThat(follower.failure()).isNull();
+        assertThat(approvals.findById(approvalId).orElseThrow().getApprovalStatus()).isEqualTo(ApprovalStatus.APPROVED);
+        assertThat(count("select count(*) from approval_historytbl where approval_id = ? and action_type = 'APPROVED'",
+                approvalId)).isEqualTo(2);
+    }
+
+    @Test
+    void waitingNextStepApproverCanRejectLineActivatedByLeader() throws Exception {
+        Long approvalId = transactions.execute(ignored -> createTwoStepApproval(
+                createUser("reject-race-writer"), createUser("reject-race-first"), createUser("reject-race-second"),
+                createGeneralType("REJECT_RACE_GENERAL")));
+        holdLeaderInsideApproval(false);
+
+        var reason = new ApprovalDecisionRequest();
+        ReflectionTestUtils.setField(reason, "comment", "보완 필요");
+        FollowerResult follower = leaderThenFollower("approvaltbl",
+                () -> approve(approvalId, "reject-race-first"),
+                () -> approvalService.rejectApproval(approvalId, "reject-race-second", reason));
+
+        assertThat(follower.leaderFailure()).isNull();
+        assertFollowerWaitedForLeader(follower);
+        assertThat(follower.failure()).isNull();
+        assertThat(approvals.findById(approvalId).orElseThrow().getApprovalStatus()).isEqualTo(ApprovalStatus.REJECTED);
+        assertThat(count("select count(*) from approval_historytbl where approval_id = ? and action_type = 'REJECTED'",
+                approvalId)).isEqualTo(1);
+    }
+
+    @Test
+    void waitingTerminationSeesLineActivatedByLeader() throws Exception {
+        Long approvalId = transactions.execute(ignored -> {
+            createUser("terminate-race-admin", UserRole.SUPER_ADMIN, UserStatus.ACTIVE);
+            return createTwoStepApproval(createUser("terminate-race-writer"), createUser("terminate-race-first"),
+                    createUser("terminate-race-second", UserRole.USER, UserStatus.INACTIVE),
+                    createGeneralType("TERMINATE_RACE_GENERAL"));
+        });
+        holdLeaderInsideApproval(false);
+
+        // 2단계 결재자가 비활성이므로, 1단계 승인이 커밋된 뒤의 상태로 판단하면 종료할 수 있어야 한다.
+        FollowerResult follower = leaderThenFollower("approvaltbl",
+                () -> approve(approvalId, "terminate-race-first"),
+                () -> approvalService.terminateApproval(approvalId, "terminate-race-admin",
+                        new ApprovalTerminateRequest("비활성 결재자")));
+
+        assertThat(follower.leaderFailure()).isNull();
+        assertFollowerWaitedForLeader(follower);
+        assertThat(follower.failure()).isNull();
+        assertThat(approvals.findById(approvalId).orElseThrow().getApprovalStatus())
+                .isEqualTo(ApprovalStatus.TERMINATED);
+    }
+
+    @Test
+    void forbiddenTerminationDoesNotWaitForDocumentLock() throws Exception {
+        Long approvalId = transactions.execute(ignored -> createSubmittedApproval(
+                createUser("terminate-lock-writer"), createUser("terminate-lock-approver"),
+                createGeneralType("TERMINATE_LOCK_GENERAL")));
+
+        whileHoldingLock(
+                () -> approvals.findByIdForUpdate(approvalId).orElseThrow(),
+                () -> {
+                    // 잠금을 기다렸다면 대기 한도 초과(1205)로 끝난다. whileHoldingLock은 이 판정이 끝날 때까지
+                    // 잠금 보유 트랜잭션이 살아 있는지 확인하므로, 잠금이 걸린 동안 권한 오류로 끝났음을 보장한다.
+                    // 시간 단언은 CI 스케줄링에 흔들리므로 두지 않는다. 잠금 호출이 없는지는 단위 테스트가 확인한다.
+                    Throwable failure = catchThrowable(() -> approvalService.terminateApproval(
+                            approvalId, "terminate-lock-writer", new ApprovalTerminateRequest("사유")));
+                    assertThat(failure).isInstanceOfSatisfying(BusinessException.class, error ->
+                            assertThat(error.getErrorCode()).isEqualTo(ErrorCode.APPROVAL_TERMINATE_FORBIDDEN));
+                });
+    }
+
+    @Test
+    void waitingWriterCannotCancelAfterLeaderApprovesFirstStep() throws Exception {
+        Long approvalId = transactions.execute(ignored -> createTwoStepApproval(
+                createUser("cancel-race-writer"), createUser("cancel-race-first"), createUser("cancel-race-second"),
+                createGeneralType("CANCEL_RACE_GENERAL")));
+        holdLeaderInsideApproval(false);
+
+        FollowerResult follower = leaderThenFollower("approvaltbl",
+                () -> approve(approvalId, "cancel-race-first"),
+                () -> approvalService.cancelApproval(approvalId, "cancel-race-writer"));
+
+        assertThat(follower.leaderFailure()).isNull();
+        assertFollowerWaitedForLeader(follower);
+        // 잠금을 얻은 시점에는 1단계가 이미 처리됐으므로 회수할 수 없어야 한다.
+        assertThat(follower.failure()).isInstanceOfSatisfying(BusinessException.class, error ->
+                assertThat(error.getErrorCode()).isEqualTo(ErrorCode.APPROVAL_CANCEL_NOT_ALLOWED));
+        Approval approval = approvals.findById(approvalId).orElseThrow();
+        assertThat(approval.getApprovalStatus()).isEqualTo(ApprovalStatus.IN_PROGRESS);
+        assertThat(approval.getCurrentStep()).isEqualTo(2);
+        assertThat(count("select count(*) from approval_historytbl where approval_id = ? and action_type = 'CANCELED'",
+                approvalId)).isZero();
     }
 
     @Test
@@ -499,9 +608,13 @@ class LockContentionIntegrationTest {
     }
 
     private User createUser(String loginId) {
+        return createUser(loginId, UserRole.USER, UserStatus.ACTIVE);
+    }
+
+    private User createUser(String loginId, UserRole role, UserStatus status) {
         return users.save(User.create(loginId, "test-only", loginId, null, null,
                 loginId, null, LocalDate.of(2025, 1, 1),
-                null, null, UserRole.USER, UserStatus.ACTIVE));
+                null, null, role, status));
     }
 
     private ApprovalDocumentType createGeneralType(String code) {
@@ -512,6 +625,14 @@ class LockContentionIntegrationTest {
         Approval approval = approvals.save(Approval.createDraft(writer, "잠금 검증", "본문", type));
         approval.submit(LocalDateTime.now(clock));
         lines.save(ApprovalLine.create(approval, approver, 1, ApprovalLineStatus.PENDING));
+        return approval.getApprovalId();
+    }
+
+    private Long createTwoStepApproval(User writer, User first, User second, ApprovalDocumentType type) {
+        Approval approval = approvals.save(Approval.createDraft(writer, "스냅샷 검증", "본문", type));
+        approval.submit(LocalDateTime.now(clock));
+        lines.save(ApprovalLine.create(approval, first, 1, ApprovalLineStatus.PENDING));
+        lines.save(ApprovalLine.create(approval, second, 2, ApprovalLineStatus.WAITING));
         return approval.getApprovalId();
     }
 
