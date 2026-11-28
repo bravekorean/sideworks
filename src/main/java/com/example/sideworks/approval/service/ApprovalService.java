@@ -42,7 +42,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -82,6 +84,8 @@ public class ApprovalService {
     private final ApprovalDelegationService delegationService;
     // 모든 시각·날짜는 애플리케이션 시간대(app.time-zone, 기본 Asia/Seoul) 기준이다.
     private final Clock clock;
+    // 강제 종료처럼 사전 검사와 업무 트랜잭션을 나눠야 하는 경로에서 쓴다.
+    private final TransactionOperations transactions;
 
     // 최근 활동은 최신 이력 ID 조회와 접근 판정을 두 문장으로 나눠 실행하므로 같은 스냅샷이 필요하다.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -271,25 +275,22 @@ public class ApprovalService {
         notificationWorkflow.onCanceled(approval, currentLine);
     }
 
-    @Transactional
+    // 권한·사유 검사는 업무 트랜잭션 밖에서 문서 잠금 전에 끝낸다. 같은 트랜잭션에서 사용자를 먼저 읽으면
+    // REPEATABLE READ 스냅샷이 잠금 전에 고정되고, 권한 없는 요청이 문서 잠금을 기다리게 된다.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void terminateApproval(Long approvalId, String loginId, ApprovalTerminateRequest request) {
-        // 승인과 같은 이유로 문서 잠금을 첫 SQL로 둔다. 오류 우선순위(권한 → 사유 → 문서 상태)는
-        // 기존과 같게 유지하려고 잠금 결과의 존재·상태 판정은 권한과 사유 검사 뒤로 미룬다.
-        Optional<Approval> lockedApproval = approvalRepository.findByIdForUpdate(approvalId);
-        User actor = findUserByLoginId(loginId);
-        if (actor.getUserRole() != UserRole.SUPER_ADMIN) {
-            throw new BusinessException(ErrorCode.APPROVAL_TERMINATE_FORBIDDEN);
-        }
-        String reason = request == null ? null : request.reason();
-        if (reason == null || reason.isBlank()) {
-            throw new BusinessException(ErrorCode.APPROVAL_TERMINATE_REASON_REQUIRED);
-        }
-        reason = reason.trim();
-        if (reason.length() > MAX_APPROVAL_COMMENT_LENGTH) {
-            throw new BusinessException(ErrorCode.INVALID_REQUEST);
-        }
+        requireSuperAdmin(findUserByLoginId(loginId));
+        String reason = normalizeTerminateReason(request);
 
-        Approval approval = requireInProgress(lockedApproval);
+        transactions.executeWithoutResult(status -> terminateLockedApproval(approvalId, loginId, reason));
+    }
+
+    private void terminateLockedApproval(Long approvalId, String loginId, String reason) {
+        Approval approval = findApprovalForDecision(approvalId);
+        // 사전 검사 이후 역할이 바뀌었을 수 있으므로 잠금 뒤 스냅샷으로 다시 확인한다.
+        User actor = findUserByLoginId(loginId);
+        requireSuperAdmin(actor);
+
         LocalDateTime terminatedAt = LocalDateTime.now(clock);
         ApprovalLine currentLine = findCurrentApprovalLine(approval);
         if (!currentLine.isPending()) {
@@ -466,12 +467,26 @@ public class ApprovalService {
         approvalHistoryRepository.save(history);
     }
 
-    private Approval findApprovalForDecision(Long approvalId) {
-        return requireInProgress(approvalRepository.findByIdForUpdate(approvalId));
+    private static void requireSuperAdmin(User actor) {
+        if (actor.getUserRole() != UserRole.SUPER_ADMIN) {
+            throw new BusinessException(ErrorCode.APPROVAL_TERMINATE_FORBIDDEN);
+        }
     }
 
-    private Approval requireInProgress(Optional<Approval> lockedApproval) {
-        Approval approval = lockedApproval
+    private static String normalizeTerminateReason(ApprovalTerminateRequest request) {
+        String reason = request == null ? null : request.reason();
+        if (reason == null || reason.isBlank()) {
+            throw new BusinessException(ErrorCode.APPROVAL_TERMINATE_REASON_REQUIRED);
+        }
+        reason = reason.trim();
+        if (reason.length() > MAX_APPROVAL_COMMENT_LENGTH) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST);
+        }
+        return reason;
+    }
+
+    private Approval findApprovalForDecision(Long approvalId) {
+        Approval approval = approvalRepository.findByIdForUpdate(approvalId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_NOT_FOUND));
 
         if (!approval.isInProgress()) {

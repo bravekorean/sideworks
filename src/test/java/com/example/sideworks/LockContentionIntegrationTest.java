@@ -1,6 +1,7 @@
 package com.example.sideworks;
 
 import com.example.sideworks.approval.dto.ApprovalDecisionRequest;
+import com.example.sideworks.approval.dto.ApprovalTerminateRequest;
 import com.example.sideworks.approval.entity.Approval;
 import com.example.sideworks.approval.entity.ApprovalDocumentType;
 import com.example.sideworks.approval.entity.ApprovalLine;
@@ -153,6 +154,50 @@ class LockContentionIntegrationTest {
         assertThat(approvals.findById(approvalId).orElseThrow().getApprovalStatus()).isEqualTo(ApprovalStatus.REJECTED);
         assertThat(count("select count(*) from approval_historytbl where approval_id = ? and action_type = 'REJECTED'",
                 approvalId)).isEqualTo(1);
+    }
+
+    @Test
+    void waitingTerminationSeesLineActivatedByLeader() throws Exception {
+        Long approvalId = transactions.execute(ignored -> {
+            createUser("terminate-race-admin", UserRole.SUPER_ADMIN, UserStatus.ACTIVE);
+            return createTwoStepApproval(createUser("terminate-race-writer"), createUser("terminate-race-first"),
+                    createUser("terminate-race-second", UserRole.USER, UserStatus.INACTIVE),
+                    createGeneralType("TERMINATE_RACE_GENERAL"));
+        });
+        holdLeaderInsideApproval(false);
+
+        // 2단계 결재자가 비활성이므로, 1단계 승인이 커밋된 뒤의 상태로 판단하면 종료할 수 있어야 한다.
+        FollowerResult follower = leaderThenFollower("approvaltbl",
+                () -> approve(approvalId, "terminate-race-first"),
+                () -> approvalService.terminateApproval(approvalId, "terminate-race-admin",
+                        new ApprovalTerminateRequest("비활성 결재자")));
+
+        assertThat(follower.leaderFailure()).isNull();
+        assertFollowerWaitedForLeader(follower);
+        assertThat(follower.failure()).isNull();
+        assertThat(approvals.findById(approvalId).orElseThrow().getApprovalStatus())
+                .isEqualTo(ApprovalStatus.TERMINATED);
+    }
+
+    @Test
+    void forbiddenTerminationDoesNotWaitForDocumentLock() throws Exception {
+        Long approvalId = transactions.execute(ignored -> createSubmittedApproval(
+                createUser("terminate-lock-writer"), createUser("terminate-lock-approver"),
+                createGeneralType("TERMINATE_LOCK_GENERAL")));
+
+        whileHoldingLock(
+                () -> approvals.findByIdForUpdate(approvalId).orElseThrow(),
+                () -> {
+                    long start = System.nanoTime();
+                    Throwable failure = catchThrowable(() -> approvalService.terminateApproval(
+                            approvalId, "terminate-lock-writer", new ApprovalTerminateRequest("사유")));
+                    long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
+                    assertThat(failure).isInstanceOfSatisfying(BusinessException.class, error ->
+                            assertThat(error.getErrorCode()).isEqualTo(ErrorCode.APPROVAL_TERMINATE_FORBIDDEN));
+                    // 잠금 대기 한도(2초)보다 충분히 짧아야 잠금을 기다리지 않은 것이다.
+                    assertThat(elapsedMs).isLessThan(1_000L);
+                    System.out.printf("forbidden termination while document locked: %d ms%n", elapsedMs);
+                });
     }
 
     @Test
@@ -565,9 +610,13 @@ class LockContentionIntegrationTest {
     }
 
     private User createUser(String loginId) {
+        return createUser(loginId, UserRole.USER, UserStatus.ACTIVE);
+    }
+
+    private User createUser(String loginId, UserRole role, UserStatus status) {
         return users.save(User.create(loginId, "test-only", loginId, null, null,
                 loginId, null, LocalDate.of(2025, 1, 1),
-                null, null, UserRole.USER, UserStatus.ACTIVE));
+                null, null, role, status));
     }
 
     private ApprovalDocumentType createGeneralType(String code) {
