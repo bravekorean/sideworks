@@ -1,0 +1,8 @@
+services:
+  backend:
+    build: !reset null
+    image: ghcr.io/bravekorean/sideworks-backend:${SIDEWORKS_IMAGE_TAG:?Set SIDEWORKS_IMAGE_TAG to a release tag}
+
+  frontend:
+    build: !reset null
+    image: ghcr.io/bravekorean/sideworks-frontend:${SIDEWORKS_IMAGE_TAG:?Set SIDEWORKS_IMAGE_TAG to a release tag}

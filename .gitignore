@@ -53,6 +53,7 @@ frontend/.env
 frontend/.env.*
 .env
 .env.*
+!/.env.example
 
 # local agent instructions
 AGENTS.md
@@ -60,12 +61,14 @@ AGENTS.md
 
 # local project documentation
 docs/*
+!/docs/laptop-compose.md
 
 # logs
 /logs/
 /sideworks-data/
 /database/*
 !/database/migrations/
+!/database/bootstrap/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

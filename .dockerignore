@@ -1,0 +1,13 @@
+**
+!build.gradle
+!settings.gradle
+!gradlew
+!gradle/
+!gradle/wrapper/
+!gradle/wrapper/*
+!src/
+!src/main/
+!src/main/**
+src/main/resources/application-local.properties
+src/main/resources/application-*.properties
+!src/main/resources/application-prod.properties

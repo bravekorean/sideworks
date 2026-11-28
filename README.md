@@ -12,6 +12,8 @@
 
 기술 스택: Java 21, Spring Boot 3.5, Spring Security, Spring Data JPA, QueryDSL, MySQL 8.0, React 19, MUI. 현재 상시 공개된 서비스는 없습니다. AWS EC2·RDS·Nginx에서 V1 흐름을 한 차례 검증한 뒤 비용을 고려해 자원을 정리했습니다.
 
+노트북에서 실행하고 검증하려면 [Docker Compose 배포 문서](docs/laptop-compose.md)를 참고하세요.
+
 ## 설계 중점
 
 대시보드 조회 최적화와 전자결재 SQL 튜닝의 전후 수치, 실행계획, 재현 방법은 [성능 개선 기록](PERFORMANCE.md)에 정리했습니다.
