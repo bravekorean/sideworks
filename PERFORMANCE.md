@@ -7,7 +7,7 @@
 | 대시보드 전용 조회 | 결재 조회 SQL 10 → 6개, 프로필 포함 대시보드 로더 요청 6 → 2개 | 제품 코드 반영 |
 | 결재 처리함 인덱스 | 첫 페이지 목록 SQL p50 19.110 → 0.815ms, 결재선 접근 34,000 → 20행 | 격리 DB 검증 |
 | 최근 결재 활동 | 결재·참조 편중 사용자 p50 23.134 → 3.773ms, 참여 없음 185.465 → 5.209ms | 격리 DB 검증 |
-| 휴가 첨부 저장과 사용자 잠금 | 첨부 저장(지연 300ms) 중 같은 직원의 잔액 조회 대기 p50 323~328 → 5ms | 제품 코드 반영(2026-11-28) |
+| 휴가 첨부 저장과 사용자 잠금 | 첨부 저장 지연 300ms에서 같은 직원의 잔액 조회 서비스 호출 p50 323~328 → 5ms | 제품 코드 반영(2026-11-28) |
 
 ## 대시보드에서 쓰지 않는 조회 제거
 
@@ -66,7 +66,7 @@
 
 휴가·취소 첨부는 `unbound/{UUID}` 키로 잠금 전에 저장하고 잠금 안에서는 첨부 행만 기록한다. 일반 결재 첨부의 `{approvalId}/{UUID}` 키와 동작은 그대로다. 저장 단계는 DB를 읽지 않으며, 신청 트랜잭션의 첫 SQL이 `usertbl … for update`인지 테스트로 확인한다.
 
-테스트 전용 FileStorage에 300ms 지연을 넣고, 같은 직원의 신청 A(PDF 1개)가 저장하는 동안 잔액 조회가 기다린 시간을 10회 측정했다. 변경 전 코드(`ce9bcc5`)와 변경 후 main(`cb8749d`)을 같은 측정 테스트로 비교했다.
+테스트 전용 FileStorage에 300ms 지연을 넣고, 같은 직원의 신청 A(PDF 1개)가 저장하는 동안 실행한 잔액 조회 서비스 호출(`getMyBalance()`)의 시작부터 반환까지를 10회 측정했다. 이 시간에는 트랜잭션 시작·종료, 사용자 행 잠금 획득, 잔액 조회가 함께 들어가며 순수한 행 잠금 대기만 분리한 값은 아니다. 변경 전 코드(`ce9bcc5`)와 변경 후 main(`cb8749d`)을 같은 측정 테스트로 비교했다. 두 커밋 모두 커넥션별 5초 잠금 대기 한도와 409 처리가 이미 적용돼 있어, 이 비교는 첨부 저장 위치 변경만의 효과다.
 
 | 실행 | p50 | 최대 |
 | --- | ---: | ---: |
@@ -75,7 +75,7 @@
 | 변경 후, 로컬 PC | **5ms** | 67ms |
 | 변경 후, 별도 Linux 환경 2회 | **5ms** · **5ms** | 69ms · 74ms |
 
-변경 후 최대값은 각 실행의 첫 표본(워밍업)이며 나머지 9회는 4~7ms였다. 측정 대상은 행 잠금 대기이며, 저장하는 동안 트랜잭션이 이미 열려 있어 DB 커넥션 1개를 점유하는 비용은 남는다. 신청이 업무 규칙 위반·잠금 대기 초과·일부 파일 저장 실패로 롤백되면 미리 저장한 파일이 남지 않는 것을 별도 통합 테스트로 확인했다. [측정 테스트](src/test/java/com/example/sideworks/LeaveAttachmentLockHoldBenchmarkTest.java) · [파일 정리 테스트](src/test/java/com/example/sideworks/LeaveAttachmentPrestoreIntegrationTest.java)
+별도 Linux 환경 변경 후 2회의 원시 표본은 `[69, 6, 7, 6, 5, 5, 5, 5, 5, 5]`, `[74, 5, 5, 6, 6, 5, 6, 5, 5, 4]`로 최대값은 첫 표본이었다. 로컬 PC 실행의 원시 표본은 남기지 않았다. 저장하는 동안 트랜잭션이 이미 열려 있어 DB 커넥션 1개를 점유하는 비용은 남는다. 신청이 업무 규칙 위반·잠금 대기 초과·일부 파일 저장 실패로 롤백되면 미리 저장한 파일이 남지 않는 것을 별도 통합 테스트로 확인했다. [측정 테스트](src/test/java/com/example/sideworks/LeaveAttachmentLockHoldBenchmarkTest.java) · [파일 정리 테스트](src/test/java/com/example/sideworks/LeaveAttachmentPrestoreIntegrationTest.java)
 
 ## 재현 방법
 
@@ -94,5 +94,7 @@ $env:SIDEWORKS_APPROVAL_PLAN_BENCHMARK='true'
 $env:SIDEWORKS_LOCK_HOLD_BENCHMARK='true'
 ./gradlew.bat test --rerun --tests '*LeaveAttachmentLockHoldBenchmarkTest'
 ```
+
+휴가 첨부 측정은 `build/reports/`에 별도 파일을 만들지 않는다. Gradle 테스트 보고서(`build/reports/tests/test/index.html`)의 `LeaveAttachmentLockHoldBenchmarkTest` 표준 출력에서 `LOCK_HOLD_BENCHMARK` 줄의 표본과 p50·최대값을 확인한다.
 
 HTTP 비교와 브라우저 확인은 `frontend`에서 `npm run build`를 먼저 실행하고, 저장소 루트에서 `$env:SIDEWORKS_DASHBOARD_BROWSER_SMOKE='true'`를 설정한 뒤 `./gradlew.bat test --rerun --tests '*DashboardBrowserSmokeTest'`로 서버를 시작한다. `build/reports/dashboard-browser-smoke/server.txt`에 표시된 루프백 주소에서 브라우저 확인을 진행한다. 합성 계정 안내는 테스트 코드에 있으며, 검증이 끝나면 같은 보고서 폴더에 `stop` 파일을 만들어 서버를 종료한다.
