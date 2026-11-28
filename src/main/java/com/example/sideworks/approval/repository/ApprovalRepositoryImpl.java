@@ -218,6 +218,7 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
      * 구간 안에서 offset+limit건을 모두 확보했을 때만(= 페이지가 꽉 찼을 때만) 결과를 쓴다.
      * 구간은 전체 정렬 순서의 최신 접두부이므로, 그 안에서 채운 페이지는 전체에서 고른 페이지와 같다.
      * 부족하거나 추정 구간이 상한을 넘으면 빈 값을 돌려 기존 UNION 경로를 쓰게 한다.
+     * 호출자는 남은 건수(total - offset)가 limit 이상일 때만 부른다. 그보다 적으면 페이지가 꽉 찰 수 없다.
      */
     private Optional<List<ApprovalActivityResponse>> findDeepPageInLatestWindow(
             Long userId, long offset, int limit, long total) {
@@ -577,7 +578,11 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
         if (offset + limit <= LATEST_ACTIVITY_PROBE_SIZE) {
             return toPage(findVisibleActivities(userId, offset, limit), pageable, total);
         }
-        List<ApprovalActivityResponse> content = findDeepPageInLatestWindow(userId, offset, limit, total)
+        // 남은 건수가 페이지 크기보다 적은 마지막 부분 페이지는 어떤 구간에서도 꽉 차지 않으므로 바로 UNION을 쓴다.
+        boolean pageCanBeFull = total - offset >= limit;
+        List<ApprovalActivityResponse> content = (pageCanBeFull
+                ? findDeepPageInLatestWindow(userId, offset, limit, total)
+                : Optional.<List<ApprovalActivityResponse>>empty())
                 .orElseGet(() -> findVisibleActivitiesPage(userId, offset, limit));
         return toPage(content, pageable, total);
     }

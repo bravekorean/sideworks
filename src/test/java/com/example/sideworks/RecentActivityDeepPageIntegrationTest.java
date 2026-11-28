@@ -52,6 +52,12 @@ class RecentActivityDeepPageIntegrationTest {
     private static final String REFERENCE_PAGE = "select h.approval_history_id " + REFERENCE_WHERE
             + " order by h.created_at desc, h.approval_history_id desc limit ? offset ?";
     private static final String REFERENCE_COUNT = "select count(*) " + REFERENCE_WHERE;
+    private static final String REFERENCE_FIELDS = """
+            select h.approval_history_id, a.approval_id, a.title, u.user_id, u.user_name,
+                   h.action_step, h.action_type, h.created_at
+            """ + REFERENCE_WHERE.replace("join approvaltbl a on a.approval_id = h.approval_id",
+                    "join approvaltbl a on a.approval_id = h.approval_id join usertbl u on u.user_id = h.actor_id")
+            + " order by h.created_at desc, h.approval_history_id desc limit ? offset ?";
 
     private static final long DENSE_APPROVER = 1;
     private static final long WRITER = 2;
@@ -85,15 +91,15 @@ class RecentActivityDeepPageIntegrationTest {
     }
 
     @Test
-    void denseUserDeepPageUsesTheWindowAndFallsBackOnlyWhenThePageIsNotFull() {
+    void denseUserDeepPageUsesTheWindowAndPartialLastPageGoesStraightToUnion() {
         long total = jdbc.queryForObject(REFERENCE_COUNT, Long.class,
                 DENSE_APPROVER, DENSE_APPROVER, DENSE_APPROVER, DENSE_APPROVER);
         int lastPage = (int) ((total - 1) / PAGE_SIZE);
         assertThat(total % PAGE_SIZE).as("마지막 페이지가 꽉 차지 않아야 경계를 검증할 수 있다").isNotZero();
 
         assertThat(pathFor(DENSE_APPROVER, 10)).as("offset 200: 구간 사용").isEqualTo(RecentActivityListPath.WINDOW);
-        assertThat(pathFor(DENSE_APPROVER, lastPage)).as("부분 페이지: 구간 결과를 쓰지 않고 UNION")
-                .isEqualTo(RecentActivityListPath.WINDOW_THEN_UNION);
+        assertThat(pathFor(DENSE_APPROVER, lastPage)).as("부분 페이지: 남은 건수가 부족해 구간 없이 바로 UNION")
+                .isEqualTo(RecentActivityListPath.UNION);
         assertThat(pathFor(DENSE_APPROVER, lastPage + 1)).as("마지막 뒤: 목록 SQL 생략").isEqualTo(RecentActivityListPath.NONE);
     }
 
@@ -111,6 +117,52 @@ class RecentActivityDeepPageIntegrationTest {
                 assertThat(pathFor(user, page)).as("user=%d page=%d", user, page).isEqualTo(RecentActivityListPath.UNION);
             }
         }
+    }
+
+    @Test
+    void fullPageMissingFromTheLatestWindowFallsBackToUnion() {
+        // 사용자 6은 가장 오래된 문서 100건(이력 300건)의 작성자다. 전체로는 페이지를 채울 수 있지만
+        // 추정 구간(최신 1,440건)에는 접근 가능한 이력이 없어 구간 탐색 후 UNION으로 다시 조회해야 한다.
+        jdbc.update("""
+                insert into usertbl(user_id,login_id,user_pass,user_name,employee_no,user_role,status,created_at,updated_at)
+                values (6,'deep-page-6','not-a-login-credential','Deep page 6','DEEP-6','USER','ACTIVE','2026-01-01','2026-01-01')
+                """);
+        jdbc.update("update approvaltbl set writer_id = 6 where approval_id <= 100");
+        jdbc.update("update approval_historytbl set created_at = '2025-12-01 09:00:00' where approval_id <= 100");
+        long oldDocumentWriter = 6;
+
+        assertThat(pathFor(oldDocumentWriter, 5)).isEqualTo(RecentActivityListPath.WINDOW_THEN_UNION);
+        assertPageMatchesReference(oldDocumentWriter, 5);
+        assertResponseFieldsMatchReference(oldDocumentWriter, 5);
+    }
+
+    @Test
+    void deepPageResponseFieldsMatchTheReferenceOnEveryPath() {
+        // 경로마다 별도 네이티브 매핑을 거치므로 제목·행위자·단계·종류·시각까지 비교한다.
+        assertThat(pathFor(DENSE_APPROVER, 10)).isEqualTo(RecentActivityListPath.WINDOW);
+        assertResponseFieldsMatchReference(DENSE_APPROVER, 10);
+        long total = jdbc.queryForObject(REFERENCE_COUNT, Long.class,
+                DENSE_APPROVER, DENSE_APPROVER, DENSE_APPROVER, DENSE_APPROVER);
+        int lastPage = (int) ((total - 1) / PAGE_SIZE);
+        assertThat(pathFor(DENSE_APPROVER, lastPage)).isEqualTo(RecentActivityListPath.UNION);
+        assertResponseFieldsMatchReference(DENSE_APPROVER, lastPage);
+    }
+
+    private void assertResponseFieldsMatchReference(long user, int page) {
+        Page<ApprovalActivityResponse> actual = snapshot.execute(ignored ->
+                approvals.findRecentActivitiesByUserId(user, PageRequest.of(page, PAGE_SIZE)));
+        List<String> expected = jdbc.query(REFERENCE_FIELDS, (rs, i) -> String.join("|",
+                rs.getString("approval_history_id"), rs.getString("approval_id"), rs.getString("title"),
+                rs.getString("user_id"), rs.getString("user_name"), rs.getString("action_step"),
+                rs.getString("action_type"), rs.getTimestamp("created_at").toLocalDateTime().toString()),
+                user, user, user, user, PAGE_SIZE, page * PAGE_SIZE);
+        assertThat(expected).hasSize((int) Math.min(PAGE_SIZE, actual.getTotalElements() - (long) page * PAGE_SIZE));
+        assertThat(actual.getContent()).extracting(a -> String.join("|",
+                        String.valueOf(a.getApprovalHistoryId()), String.valueOf(a.getApprovalId()), a.getTitle(),
+                        String.valueOf(a.getActorId()), a.getActorName(), String.valueOf(a.getActionStep()),
+                        a.getActionType().name(), a.getCreatedAt().toString()))
+                .as("user=%d page=%d", user, page)
+                .containsExactlyElementsOf(expected);
     }
 
     private void assertPageMatchesReference(long user, int page) {

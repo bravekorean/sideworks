@@ -135,8 +135,9 @@ class ActivityDeepPageBenchmarkIntegrationTest {
         List<Cell> cells = new ArrayList<>();
         for (long user : USERS) for (int page : PAGES) cells.add(new Cell(user, page));
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
-        long[] statements = new long[cells.size()];
-        String[] paths = new String[cells.size()];
+        // 측정 표본마다 SQL 문장 수와 목록 경로를 남긴다(워밍업 제외).
+        long[][] statements = new long[cells.size()][SAMPLES];
+        RecentActivityListPath[][] paths = new RecentActivityListPath[cells.size()][SAMPLES];
         long[][] nanos = new long[cells.size()][SAMPLES];
         for (int round = -WARMUPS; round < SAMPLES; round++) {
             for (int i = 0; i < cells.size(); i++) {
@@ -154,10 +155,13 @@ class ActivityDeepPageBenchmarkIntegrationTest {
                         .andExpect(status().isOk());
                 long elapsed = System.nanoTime() - start;
                 List<String> recorded = RecordingStatementInspector.stop();
-                statements[index] = statistics.getPrepareStatementCount() - beforeStatements;
-                // none = 100건 이내 고정 탐색만 사용했거나 목록 SQL을 생략한 경우
-                paths[index] = RecentActivityListPath.of(recorded).name();
-                if (round >= 0) nanos[index][round] = elapsed;
+                long statementCount = statistics.getPrepareStatementCount() - beforeStatements;
+                if (round >= 0) {
+                    nanos[index][round] = elapsed;
+                    statements[index][round] = statementCount;
+                    // NONE = 100건 이내 고정 탐색만 사용했거나 목록 SQL을 생략한 경우
+                    paths[index][round] = RecentActivityListPath.of(recorded);
+                }
             }
         }
 
@@ -165,17 +169,28 @@ class ActivityDeepPageBenchmarkIntegrationTest {
                 .append("MySQL ").append(jdbc.queryForObject("select version()", String.class))
                 .append("; 20,000 documents / 100,000 histories; page size 20; ")
                 .append(WARMUPS).append(" warmup rounds, ").append(SAMPLES).append(" rotating samples per cell.\n\n")
-                .append("| user | page | offset | p50 ms | p95 ms | SQL statements | list path |\n|---:|---:|---:|---:|---:|---:|---|\n");
-        var raw = new StringBuilder("user,page,sample_ns\n");
+                .append("Path and statement columns count every measured sample (warmups excluded).\n\n")
+                .append("| user | page | offset | p50 ms | p95 ms | SQL statements (count) | list path (count) |\n|---:|---:|---:|---:|---:|---|---|\n");
+        var raw = new StringBuilder("user,page,sample_ns,statements,list_path\n");
+        var totals = new java.util.TreeMap<RecentActivityListPath, Integer>();
         for (int i = 0; i < cells.size(); i++) {
             Cell cell = cells.get(i);
-            for (long n : nanos[i]) raw.append(cell.user()).append(',').append(cell.page()).append(',').append(n).append('\n');
+            var statementCounts = new java.util.TreeMap<Long, Integer>();
+            var pathCounts = new java.util.TreeMap<RecentActivityListPath, Integer>();
+            for (int s = 0; s < SAMPLES; s++) {
+                raw.append(cell.user()).append(',').append(cell.page()).append(',').append(nanos[i][s]).append(',')
+                        .append(statements[i][s]).append(',').append(paths[i][s]).append('\n');
+                statementCounts.merge(statements[i][s], 1, Integer::sum);
+                pathCounts.merge(paths[i][s], 1, Integer::sum);
+                if (cell.page() * 20 + 20 > 100) totals.merge(paths[i][s], 1, Integer::sum);
+            }
             long[] sorted = nanos[i].clone();
             Arrays.sort(sorted);
-            report.append(String.format(Locale.ROOT, "| %d | %d | %d | %.3f | %.3f | %d | %s |%n", cell.user(), cell.page(),
+            report.append(String.format(Locale.ROOT, "| %d | %d | %d | %.3f | %.3f | %s | %s |%n", cell.user(), cell.page(),
                     cell.page() * 20, sorted[SAMPLES / 2 - 1] / 1e6, sorted[(int) Math.ceil(SAMPLES * 0.95) - 1] / 1e6,
-                    statements[i], paths[i]));
+                    statementCounts, pathCounts));
         }
+        report.append("\nDeep-page samples (offset + size > 100) by list path: ").append(totals).append('\n');
         Path output = Path.of("build/reports/activity-deep-page-request");
         Files.createDirectories(output);
         Files.writeString(output.resolve("results.md"), report);
