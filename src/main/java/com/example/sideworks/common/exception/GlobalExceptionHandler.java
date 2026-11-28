@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import jakarta.persistence.OptimisticLockException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -12,6 +13,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+
+import java.sql.SQLException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -38,6 +41,34 @@ public class GlobalExceptionHandler {
         ErrorCode errorCode = ErrorCode.CONCURRENT_MODIFICATION;
         LOG.atWarn().addKeyValue("event", "OPTIMISTIC_LOCK_CONFLICT").log("Concurrent modification rejected");
         return ResponseEntity.status(errorCode.getStatus()).body(ErrorResponse.from(errorCode));
+    }
+
+    /** DB 잠금 충돌은 409로 응답하고 대기 초과와 데드락은 별도로 집계한다. */
+    @ExceptionHandler({
+            PessimisticLockingFailureException.class,
+            jakarta.persistence.PessimisticLockException.class,
+            jakarta.persistence.LockTimeoutException.class
+    })
+    public ResponseEntity<ErrorResponse> handlePessimisticLockConflict(Exception e) {
+        ErrorCode errorCode = resolveLockError(e);
+        LOG.atWarn()
+                .addKeyValue("event", errorCode.getCode())
+                .addKeyValue("errorCode", errorCode.getCode())
+                .addKeyValue("status", errorCode.getStatus().value())
+                .addKeyValue("exception", e.getClass().getSimpleName())
+                .log("Pessimistic lock conflict");
+        return ResponseEntity.status(errorCode.getStatus()).body(ErrorResponse.from(errorCode));
+    }
+
+    private static ErrorCode resolveLockError(Exception e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException sql) {
+                if (sql.getErrorCode() == 1205) return ErrorCode.LOCK_WAIT_TIMEOUT;
+                if (sql.getErrorCode() == 1213) return ErrorCode.LOCK_DEADLOCK;
+            }
+        }
+        return e instanceof jakarta.persistence.LockTimeoutException
+                ? ErrorCode.LOCK_WAIT_TIMEOUT : ErrorCode.CONCURRENT_MODIFICATION;
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

@@ -84,6 +84,9 @@ public class LeaveCancellationService {
                 || input.reason() == null || input.reason().isBlank() || input.reason().trim().length() > 1000) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
+        // 첨부 파일 저장은 사용자 행 잠금 전에 끝낸다. 이 단계는 DB를 읽지 않으므로 트랜잭션의 첫 SQL은 아래 잠금 읽기다.
+        var preparedFiles = files == null || files.isEmpty() ? List.<ApprovalAttachmentService.PreparedAttachment>of()
+                : attachments.prepareUnbound(files);
         User user = users.lockLeaveOwner(loginId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         if (user.getStatus() != UserStatus.ACTIVE) throw new BusinessException(ErrorCode.ACCOUNT_NOT_ACTIVE);
@@ -113,7 +116,7 @@ public class LeaveCancellationService {
                 documentTypes.requireSystemType("LEAVE_CANCELLATION", DocumentBehaviorType.LEAVE_CANCELLATION)));
         submissionValidator.validateDocument(approval);
         submissionValidator.validateParticipants(approval, approvers, ccUsers);
-        if (files != null && !files.isEmpty()) attachments.upload(approval.getApprovalId(), loginId, files);
+        attachments.attachPrepared(approval, preparedFiles);
         approval.submit(LocalDateTime.now(clock));
         var approvalLines = submissionFactory.createLines(approval, approvers);
         lines.saveAll(approvalLines);

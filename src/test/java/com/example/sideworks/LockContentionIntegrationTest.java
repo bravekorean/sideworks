@@ -36,8 +36,13 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.AopTestUtils;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.testcontainers.containers.MySQLContainer;
 
 import java.math.BigDecimal;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Clock;
 import java.time.DayOfWeek;
@@ -81,8 +86,10 @@ class LockContentionIntegrationTest {
     @Autowired Clock clock;
     @MockitoSpyBean ApprovalNotificationWorkflow notificationWorkflow;
 
-    /** 선행 요청이 잠금을 쥔 채 머무는 시간. 세션 잠금 대기(2초)보다 충분히 짧아야 한다. */
-    private static final long LEADER_HOLD_MS = 700;
+    @Autowired MySQLContainer<?> mysql;
+
+    // 커밋·롤백 검증에만 더 긴 대기 한도를 사용한다. 시간 초과 검증은 기본 2초 설정을 사용한다.
+    private static final Duration LOCK_WAIT_POLL_LIMIT = Duration.ofSeconds(5);
 
     @Test
     void waitingApprovalSeesNotInProgressAfterLeaderCommits() throws Exception {
@@ -90,7 +97,7 @@ class LockContentionIntegrationTest {
                 createUser("commit-writer"), createUser("commit-approver"), createGeneralType("COMMIT_GENERAL")));
         holdLeaderInsideApproval(false);
 
-        FollowerResult follower = leaderThenFollower(
+        FollowerResult follower = leaderThenFollower("approvaltbl",
                 () -> approve(approvalId, "commit-approver"),
                 () -> approve(approvalId, "commit-approver"));
 
@@ -111,7 +118,7 @@ class LockContentionIntegrationTest {
                 createUser("rollback-writer"), createUser("rollback-approver"), createGeneralType("ROLLBACK_GENERAL")));
         holdLeaderInsideApproval(true);
 
-        FollowerResult follower = leaderThenFollower(
+        FollowerResult follower = leaderThenFollower("approvaltbl",
                 () -> approve(approvalId, "rollback-approver"),
                 () -> approve(approvalId, "rollback-approver"));
 
@@ -129,7 +136,7 @@ class LockContentionIntegrationTest {
         LeaveFixture fixture = createLeaveFixture("commit-leave-owner", "commit-leave-approver");
         holdLeaderInsideLeaveSubmission(false);
 
-        FollowerResult follower = leaderThenFollower(
+        FollowerResult follower = leaderThenFollower("usertbl",
                 () -> leaveRequestService.submit("commit-leave-owner", fixture.input(), List.of()),
                 () -> leaveRequestService.submit("commit-leave-owner", fixture.input(), List.of()));
 
@@ -148,7 +155,7 @@ class LockContentionIntegrationTest {
         LeaveFixture fixture = createLeaveFixture("rollback-leave-owner", "rollback-leave-approver");
         holdLeaderInsideLeaveSubmission(true);
 
-        FollowerResult follower = leaderThenFollower(
+        FollowerResult follower = leaderThenFollower("usertbl",
                 () -> leaveRequestService.submit("rollback-leave-owner", fixture.input(), List.of()),
                 () -> leaveRequestService.submit("rollback-leave-owner", fixture.input(), List.of()));
 
@@ -268,6 +275,8 @@ class LockContentionIntegrationTest {
 
     private static final ThreadLocal<Boolean> LEADER = ThreadLocal.withInitial(() -> false);
     private volatile CountDownLatch leaderReached;
+    private volatile CountDownLatch leaderRelease;
+    private volatile long leaderConnectionId;
 
     /** 승인 경로에서 문서 잠금을 얻은 뒤, 커밋 직전(알림 기록)에 선행 스레드만 멈춘다. */
     private void holdLeaderInsideApproval(boolean rollback) {
@@ -290,21 +299,26 @@ class LockContentionIntegrationTest {
         return AopTestUtils.getUltimateTargetObject(notificationWorkflow);
     }
 
-    private void holdIfLeader(boolean rollback) throws InterruptedException {
+    private void holdIfLeader(boolean rollback) {
         if (!LEADER.get()) return;
+        // JpaTransactionManager가 같은 커넥션을 JdbcTemplate에도 묶어 주므로 선행 트랜잭션의 연결 ID가 나온다.
+        leaderConnectionId = jdbc.queryForObject("select connection_id()", Long.class);
         leaderReached.countDown();
-        Thread.sleep(LEADER_HOLD_MS);
+        await(leaderRelease, 20);
         if (rollback) throw new LeaderRollback();
     }
 
     /**
      * 선행 요청이 잠금을 쥔 지점에 도달한 뒤 후속 요청을 보낸다.
-     * 후속 요청은 선행 트랜잭션이 커밋 또는 롤백할 때까지 행 잠금에서 기다린다.
+     * MySQL이 "후속이 선행 연결에 막혀 {@code expectedTable} 행 잠금을 기다린다"고 보고하는 것을 확인한 뒤에야
+     * 선행을 풀어 커밋 또는 롤백시킨다. 시간 측정값은 기록용이며 판정에 쓰지 않는다.
      */
-    private FollowerResult leaderThenFollower(Runnable leaderAction, Runnable followerAction) throws Exception {
+    private FollowerResult leaderThenFollower(String expectedTable, Runnable leaderAction, Runnable followerAction)
+            throws Exception {
         leaderReached = new CountDownLatch(1);
+        leaderRelease = new CountDownLatch(1);
         var executor = Executors.newFixedThreadPool(2);
-        try {
+        try (Connection observer = DriverManager.getConnection(mysql.getJdbcUrl(), "root", mysql.getPassword())) {
             Callable<Throwable> leaderTask = () -> {
                 LEADER.set(true);
                 try {
@@ -321,25 +335,73 @@ class LockContentionIntegrationTest {
 
             Callable<FollowerOutcome> followerTask = () -> {
                 long start = System.nanoTime();
-                Throwable failure = catchThrowable(followerAction::run);
+                Throwable failure = catchThrowable(() -> transactions.executeWithoutResult(ignored -> {
+                    jdbc.execute("SET SESSION innodb_lock_wait_timeout=10");
+                    try {
+                        followerAction.run();
+                    } finally {
+                        jdbc.execute("SET SESSION innodb_lock_wait_timeout=2");
+                    }
+                }));
                 return new FollowerOutcome(failure, Duration.ofNanos(System.nanoTime() - start).toMillis());
             };
             Future<FollowerOutcome> follower = executor.submit(followerTask);
 
-            // 선행이 아직 잠금을 쥐고 있는 시점에 후속 요청이 끝나지 않았는지 확인한다.
-            Thread.sleep(LEADER_HOLD_MS / 2);
-            boolean leaderStillHolding = !leader.isDone();
-            boolean followerFinishedWhileHeld = follower.isDone();
+            boolean followerBlocked;
+            boolean followerFinishedWhileHeld;
+            try {
+                followerBlocked = awaitLockWait(observer, expectedTable, leaderConnectionId);
+                followerFinishedWhileHeld = follower.isDone();
+            } finally {
+                leaderRelease.countDown();
+            }
 
             FollowerOutcome outcome = follower.get(10, SECONDS);
             Throwable leaderFailure = leader.get(10, SECONDS);
-            System.out.printf("follower waited %d ms (leader hold %d ms, leader=%s, follower=%s)%n", outcome.waitedMs(),
-                    LEADER_HOLD_MS, describe(leaderFailure), describe(outcome.failure()));
+            System.out.printf("follower on %s: blocked=%s, waited %d ms (leader=%s, follower=%s)%n", expectedTable,
+                    followerBlocked, outcome.waitedMs(), describe(leaderFailure), describe(outcome.failure()));
             return new FollowerResult(leaderFailure, outcome.failure(), outcome.waitedMs(),
-                    leaderStillHolding, followerFinishedWhileHeld);
+                    followerBlocked, followerFinishedWhileHeld);
         } finally {
+            leaderRelease.countDown();
             executor.shutdownNow();
         }
+    }
+
+    /**
+     * performance_schema에서 "선행 연결이 쥔 잠금 때문에 다른 트랜잭션이 {@code table}의 행 잠금을 기다리는" 행이
+     * 정확히 1개 보일 때까지 폴링한다. 테스트 계정에는 performance_schema 조회 권한이 없어 컨테이너 root로 별도 연결한다.
+     */
+    private boolean awaitLockWait(Connection observer, String table, long blockingConnectionId) throws Exception {
+        String sql = """
+                select count(*)
+                from performance_schema.data_lock_waits w
+                join performance_schema.data_locks requested
+                  on requested.engine_lock_id = w.requesting_engine_lock_id
+                join performance_schema.threads blocking
+                  on blocking.thread_id = w.blocking_thread_id
+                join performance_schema.threads requesting
+                  on requesting.thread_id = w.requesting_thread_id
+                where requested.object_schema = ?
+                  and requested.object_name = ?
+                  and blocking.processlist_id = ?
+                  and requesting.processlist_id <> ?
+                """;
+        long deadline = System.nanoTime() + LOCK_WAIT_POLL_LIMIT.toNanos();
+        try (PreparedStatement statement = observer.prepareStatement(sql)) {
+            statement.setString(1, mysql.getDatabaseName());
+            statement.setString(2, table);
+            statement.setLong(3, blockingConnectionId);
+            statement.setLong(4, blockingConnectionId);
+            while (System.nanoTime() < deadline) {
+                try (ResultSet rows = statement.executeQuery()) {
+                    rows.next();
+                    if (rows.getInt(1) == 1) return true;
+                }
+                Thread.sleep(50);
+            }
+        }
+        return false;
     }
 
     private static String describe(Throwable error) {
@@ -348,14 +410,10 @@ class LockContentionIntegrationTest {
         return error.getClass().getSimpleName();
     }
 
-    /**
-     * 후속 요청이 실제로 행 잠금을 기다렸는지 확인한다.
-     * 선행이 잠금을 쥔 동안 후속은 끝나지 않아야 하고, 보유 시간만큼 기다린 뒤 대기 시간 초과(2초) 전에 결과를 받아야 한다.
-     */
+    /** MySQL이 후속 요청의 행 잠금 대기를 보고했고, 그동안 후속 요청이 끝나지 않았는지 확인한다. */
     private static void assertFollowerWaitedForLeader(FollowerResult follower) {
-        assertThat(follower.leaderStillHolding()).as("확인 시점에 선행 트랜잭션이 잠금을 보유 중").isTrue();
+        assertThat(follower.followerBlocked()).as("MySQL이 후속 트랜잭션의 행 잠금 대기를 보고해야 한다").isTrue();
         assertThat(follower.followerFinishedWhileHeld()).as("선행이 잠금을 쥔 동안 후속 요청이 끝나면 안 된다").isFalse();
-        assertThat(follower.waitedMs()).as("후속 요청 대기 시간(ms)").isBetween(LEADER_HOLD_MS - 50, 1_900L);
     }
 
     private LeaveFixture createLeaveFixture(String ownerLogin, String approverLogin) {
@@ -374,7 +432,7 @@ class LockContentionIntegrationTest {
     private record FollowerOutcome(Throwable failure, long waitedMs) {}
 
     private record FollowerResult(Throwable leaderFailure, Throwable failure, long waitedMs,
-                                  boolean leaderStillHolding, boolean followerFinishedWhileHeld) {}
+                                  boolean followerBlocked, boolean followerFinishedWhileHeld) {}
 
     private record LeaveFixture(Long ownerId, LocalDate leaveDate, LeaveRequestDocumentInput input) {}
 
@@ -489,4 +547,3 @@ class LockContentionIntegrationTest {
 
     private record LeaveUsers(Long lockedId, Long independentId, Long approverId) {}
 }
-

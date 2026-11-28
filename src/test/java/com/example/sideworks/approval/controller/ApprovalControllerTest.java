@@ -12,18 +12,25 @@ import com.example.sideworks.auth.jwt.JwtTokenProvider;
 import com.example.sideworks.common.exception.BusinessException;
 import com.example.sideworks.common.exception.ErrorCode;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -78,6 +85,19 @@ class ApprovalControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("totalElements").value(0));
         verify(approvalService).getManagedApprovals("admin", null, null, true, pageable);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"1205, LOCK_WAIT_TIMEOUT", "1213, LOCK_DEADLOCK", "0, CONCURRENT_MODIFICATION"})
+    void 승인_중_DB_잠금_충돌을_409와_구분된_오류_코드로_반환한다(int mysqlError, ErrorCode expected) throws Exception {
+        doThrow(new CannotAcquireLockException("Lock conflict", new SQLException("Lock conflict", null, mysqlError)))
+                .when(approvalService).approveApproval(eq(10L), eq("approver"), any());
+
+        mockMvc.perform(post("/api/approvals/10/approve")
+                        .principal(new UsernamePasswordAuthenticationToken("approver", null)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(expected.getCode()))
+                .andExpect(jsonPath("$.message").value(expected.getMessage()));
     }
 
     @Test

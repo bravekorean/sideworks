@@ -15,6 +15,7 @@ import com.example.sideworks.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -65,6 +66,46 @@ public class ApprovalAttachmentService {
         return attachmentRepository.saveAll(attachments).stream()
                 .map(ApprovalAttachmentResponse::from)
                 .toList();
+    }
+
+    /**
+     * 결재 문서를 만들기 전에 파일을 검증하고 저장한다. 휴가·취소 신청이 사용자 행 잠금을 잡기 전에 호출한다.
+     * DB를 읽지 않는다. 잠금 전에 일반 SELECT가 실행되면 REPEATABLE READ 스냅샷이 잠금 전 시점으로 고정되어
+     * 잠금 뒤의 잔여 연차 검사가 다른 요청의 커밋을 보지 못한다.
+     * 트랜잭션이 커밋되지 않으면(검증 실패, 잠금 대기 초과, 저장 도중 실패 포함) 이미 저장한 파일을 지운다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<PreparedAttachment> prepareUnbound(List<MultipartFile> files) {
+        List<AttachmentFileValidator.ValidatedFile> validatedFiles = validateBatch(files, List.of());
+        List<String> storedKeys = new ArrayList<>();
+        registerRollbackCleanup(storedKeys);
+
+        List<PreparedAttachment> prepared = new ArrayList<>(validatedFiles.size());
+        for (AttachmentFileValidator.ValidatedFile validated : validatedFiles) {
+            FileStorage.StoredFile stored = fileStorage.storeUnbound(validated.file());
+            storedKeys.add(stored.storageKey());
+            prepared.add(new PreparedAttachment(validated, stored.storageKey()));
+        }
+        return prepared;
+    }
+
+    /** {@link #prepareUnbound}로 저장한 파일을 같은 트랜잭션에서 만든 새 결재 문서에 연결한다. 파일 I/O는 없다. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void attachPrepared(Approval approval, List<PreparedAttachment> prepared) {
+        if (prepared.isEmpty()) return;
+        attachmentRepository.saveAll(prepared.stream()
+                .map(item -> ApprovalAttachment.create(
+                        approval,
+                        approval.getWriter(),
+                        item.file().originalFileName(),
+                        item.storageKey(),
+                        item.file().contentType(),
+                        item.file().extension(),
+                        item.file().file().getSize()))
+                .toList());
+    }
+
+    public record PreparedAttachment(AttachmentFileValidator.ValidatedFile file, String storageKey) {
     }
 
     public List<ApprovalAttachmentResponse> findAll(Long approvalId, String loginId) {
