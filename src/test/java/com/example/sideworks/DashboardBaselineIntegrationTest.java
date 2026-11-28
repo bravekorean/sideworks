@@ -139,7 +139,12 @@ class DashboardBaselineIntegrationTest {
                 transaction.execute(ignored -> entry.getValue().get());
                 long elapsed = System.nanoTime() - start;
                 long count = statistics.getPrepareStatementCount() - before;
-                assertThat(count).as("SQL count: %s", entry.getKey()).isEqualTo(2);
+                var sqlCount = assertThat(count).as("SQL count: %s", entry.getKey());
+                switch (entry.getKey()) {
+                    case "pending" -> sqlCount.isEqualTo(3L); // delegate lookup, list, count
+                    case "activities" -> sqlCount.isBetween(3L, 4L); // probe, list, count, optional fallback
+                    default -> sqlCount.isEqualTo(2L);
+                }
                 samples.get(entry.getKey())[i] = elapsed;
                 statementCounts.put(entry.getKey(), count);
                 bundleNanos += elapsed;
@@ -149,7 +154,7 @@ class DashboardBaselineIntegrationTest {
             bundleSamples[i] = bundleNanos;
         }
         samples.put("sequential-bundle", bundleSamples);
-        statementCounts.put("sequential-bundle", 10L);
+        statementCounts.put("sequential-bundle", statementCounts.values().stream().mapToLong(Long::longValue).sum());
         samples.forEach((name, values) -> {
             long[] sorted = values.clone();
             Arrays.sort(sorted);

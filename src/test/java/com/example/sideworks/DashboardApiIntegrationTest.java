@@ -13,6 +13,7 @@ import com.example.sideworks.attendance.service.AttendanceCorrectionService;
 import com.example.sideworks.auth.jwt.JwtAuthenticationFilter;
 import com.example.sideworks.auth.jwt.JwtTokenProvider;
 import com.example.sideworks.common.exception.GlobalExceptionHandler;
+import com.example.sideworks.config.ClockConfig;
 import com.example.sideworks.config.SecurityConfig;
 import com.example.sideworks.leave.service.LeaveCancellationService;
 import com.example.sideworks.leave.service.LeaveRequestService;
@@ -39,6 +40,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import java.time.Clock;
+import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -71,10 +75,11 @@ class DashboardApiIntegrationTest {
     @Configuration(proxyBeanMethods = false)
     @EnableAutoConfiguration(exclude = UserDetailsServiceAutoConfiguration.class)
     @Import({DashboardBaselineIntegrationTest.Config.class, ApprovalController.class,
-            ApprovalService.class, SecurityConfig.class, JwtAuthenticationFilter.class, GlobalExceptionHandler.class})
+            ApprovalService.class, ClockConfig.class, SecurityConfig.class, JwtAuthenticationFilter.class, GlobalExceptionHandler.class})
     static class Config {
     }
 
+    @Autowired Clock clock;
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper mapper;
     @Autowired JdbcTemplate jdbc;
@@ -94,7 +99,7 @@ class DashboardApiIntegrationTest {
     void authenticatedDashboardMatchesExistingViewsForEveryRole(UserRole role) throws Exception {
         jdbc.update("update usertbl set user_role=? where user_id=1", role.name());
         authenticate("bench-1", 1, role);
-        var pending = approvals.findPendingByProcessorId(1L, java.time.LocalDate.now(), null, PageRequest.of(0, 4));
+        var pending = approvals.findPendingByProcessorId(1L, LocalDate.now(clock), null, PageRequest.of(0, 4));
         var inProgress = approvals.findSentByWriterId(1L, null,
                 com.example.sideworks.approval.entity.ApprovalStatus.IN_PROGRESS, PageRequest.of(0, 1));
         var drafts = approvals.findDraftsByWriterId(1L, null, PageRequest.of(0, 1));
@@ -115,9 +120,9 @@ class DashboardApiIntegrationTest {
                 .andExpect(jsonPath("$.recentActivities.length()").value(5))
                 .andReturn();
 
-        // One user lookup plus seven approval queries; excludes token parsing and profile requests.
+        // One user lookup plus eight approval queries, including the pending delegation lookup.
         // Recent activity takes two statements when the latest-history probe fills the page.
-        assertThat(statistics.getPrepareStatementCount() - before).isEqualTo(8);
+        assertThat(statistics.getPrepareStatementCount() - before).isEqualTo(9);
         var body = mapper.readTree(result.getResponse().getContentAsString());
         // Parse both sides as JSON so Long DTO IDs and parsed integer nodes compare by wire values.
         assertThat(body.get("pendingApprovals"))
