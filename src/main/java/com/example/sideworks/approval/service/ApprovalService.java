@@ -201,8 +201,10 @@ public class ApprovalService {
 
     @Transactional
     public void approveApproval(Long approvalId, String loginId, ApprovalDecisionRequest request) {
-        User actor = findUserByLoginId(loginId);
+        // 문서 잠금을 첫 SQL로 둔다. REPEATABLE READ는 첫 일반 SELECT에서 스냅샷을 고정하므로,
+        // 잠금 전에 다른 행을 읽으면 잠금을 기다린 뒤에도 선행 트랜잭션이 커밋한 결재선 변경을 보지 못한다.
         Approval approval = findApprovalForDecision(approvalId);
+        User actor = findUserByLoginId(loginId);
         // 문서 잠금을 얻은 뒤의 서버 시각으로 기간과 권한을 판단한다. 잠금을 기다리는 동안 위임이 끝났으면 거부된다.
         LocalDateTime processedAt = LocalDateTime.now(clock);
         ApprovalLine currentLine = findCurrentApprovalLine(approval);
@@ -227,8 +229,9 @@ public class ApprovalService {
 
     @Transactional
     public void rejectApproval(Long approvalId, String loginId, ApprovalDecisionRequest request) {
-        User actor = findUserByLoginId(loginId);
+        // 승인과 같은 이유로 문서 잠금을 첫 SQL로 둔다.
         Approval approval = findApprovalForDecision(approvalId);
+        User actor = findUserByLoginId(loginId);
         // 승인과 같이 잠금 이후 서버 시각으로 판단한다.
         LocalDateTime processedAt = LocalDateTime.now(clock);
         ApprovalLine currentLine = findCurrentApprovalLine(approval);
@@ -247,8 +250,9 @@ public class ApprovalService {
 
     @Transactional
     public void cancelApproval(Long approvalId, String loginId) {
-        User actor = findUserByLoginId(loginId);
+        // 잠금 전 스냅샷으로 "처리된 결재선 없음"을 판단하면 방금 커밋된 승인을 놓치고 회수할 수 있다.
         Approval approval = findApprovalForDecision(approvalId);
+        User actor = findUserByLoginId(loginId);
 
         validateCancellation(approval, actor);
         LocalDateTime canceledAt = LocalDateTime.now(clock);
@@ -269,6 +273,9 @@ public class ApprovalService {
 
     @Transactional
     public void terminateApproval(Long approvalId, String loginId, ApprovalTerminateRequest request) {
+        // 승인과 같은 이유로 문서 잠금을 첫 SQL로 둔다. 오류 우선순위(권한 → 사유 → 문서 상태)는
+        // 기존과 같게 유지하려고 잠금 결과의 존재·상태 판정은 권한과 사유 검사 뒤로 미룬다.
+        Optional<Approval> lockedApproval = approvalRepository.findByIdForUpdate(approvalId);
         User actor = findUserByLoginId(loginId);
         if (actor.getUserRole() != UserRole.SUPER_ADMIN) {
             throw new BusinessException(ErrorCode.APPROVAL_TERMINATE_FORBIDDEN);
@@ -282,7 +289,7 @@ public class ApprovalService {
             throw new BusinessException(ErrorCode.INVALID_REQUEST);
         }
 
-        Approval approval = findApprovalForDecision(approvalId);
+        Approval approval = requireInProgress(lockedApproval);
         LocalDateTime terminatedAt = LocalDateTime.now(clock);
         ApprovalLine currentLine = findCurrentApprovalLine(approval);
         if (!currentLine.isPending()) {
@@ -460,7 +467,11 @@ public class ApprovalService {
     }
 
     private Approval findApprovalForDecision(Long approvalId) {
-        Approval approval = approvalRepository.findByIdForUpdate(approvalId)
+        return requireInProgress(approvalRepository.findByIdForUpdate(approvalId));
+    }
+
+    private Approval requireInProgress(Optional<Approval> lockedApproval) {
+        Approval approval = lockedApproval
                 .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_NOT_FOUND));
 
         if (!approval.isInProgress()) {

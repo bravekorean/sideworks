@@ -35,6 +35,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.AopTestUtils;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.MySQLContainer;
 
@@ -131,6 +132,27 @@ class LockContentionIntegrationTest {
         assertThat(approvals.findById(approvalId).orElseThrow().getApprovalStatus()).isEqualTo(ApprovalStatus.APPROVED);
         assertThat(count("select count(*) from approval_historytbl where approval_id = ? and action_type = 'APPROVED'",
                 approvalId)).isEqualTo(2);
+    }
+
+    @Test
+    void waitingNextStepApproverCanRejectLineActivatedByLeader() throws Exception {
+        Long approvalId = transactions.execute(ignored -> createTwoStepApproval(
+                createUser("reject-race-writer"), createUser("reject-race-first"), createUser("reject-race-second"),
+                createGeneralType("REJECT_RACE_GENERAL")));
+        holdLeaderInsideApproval(false);
+
+        var reason = new ApprovalDecisionRequest();
+        ReflectionTestUtils.setField(reason, "comment", "보완 필요");
+        FollowerResult follower = leaderThenFollower("approvaltbl",
+                () -> approve(approvalId, "reject-race-first"),
+                () -> approvalService.rejectApproval(approvalId, "reject-race-second", reason));
+
+        assertThat(follower.leaderFailure()).isNull();
+        assertFollowerWaitedForLeader(follower);
+        assertThat(follower.failure()).isNull();
+        assertThat(approvals.findById(approvalId).orElseThrow().getApprovalStatus()).isEqualTo(ApprovalStatus.REJECTED);
+        assertThat(count("select count(*) from approval_historytbl where approval_id = ? and action_type = 'REJECTED'",
+                approvalId)).isEqualTo(1);
     }
 
     @Test
