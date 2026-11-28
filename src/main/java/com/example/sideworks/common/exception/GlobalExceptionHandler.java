@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
+import java.sql.SQLException;
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -41,25 +43,32 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(errorCode.getStatus()).body(ErrorResponse.from(errorCode));
     }
 
-    /**
-     * 행 잠금 대기 시간 초과(MySQL 1205)는 서버 장애가 아니라 같은 자원을 다른 요청이 처리 중이라는 뜻이다.
-     * 재시도할 수 있는 409로 응답하고, 운영 중 흔히 생길 수 있으므로 스택 없이 WARN으로만 남긴다.
-     * 트랜잭션은 이미 롤백됐으므로 부분 반영은 없다.
-     */
+    /** DB 잠금 충돌은 409로 응답하고 대기 초과와 데드락은 별도로 집계한다. */
     @ExceptionHandler({
             PessimisticLockingFailureException.class,
             jakarta.persistence.PessimisticLockException.class,
             jakarta.persistence.LockTimeoutException.class
     })
-    public ResponseEntity<ErrorResponse> handleLockWaitTimeout(Exception e) {
-        ErrorCode errorCode = ErrorCode.LOCK_WAIT_TIMEOUT;
+    public ResponseEntity<ErrorResponse> handlePessimisticLockConflict(Exception e) {
+        ErrorCode errorCode = resolveLockError(e);
         LOG.atWarn()
-                .addKeyValue("event", "LOCK_WAIT_TIMEOUT")
+                .addKeyValue("event", errorCode.getCode())
                 .addKeyValue("errorCode", errorCode.getCode())
                 .addKeyValue("status", errorCode.getStatus().value())
                 .addKeyValue("exception", e.getClass().getSimpleName())
-                .log("Lock wait timed out");
+                .log("Pessimistic lock conflict");
         return ResponseEntity.status(errorCode.getStatus()).body(ErrorResponse.from(errorCode));
+    }
+
+    private static ErrorCode resolveLockError(Exception e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException sql) {
+                if (sql.getErrorCode() == 1205) return ErrorCode.LOCK_WAIT_TIMEOUT;
+                if (sql.getErrorCode() == 1213) return ErrorCode.LOCK_DEADLOCK;
+            }
+        }
+        return e instanceof jakarta.persistence.LockTimeoutException
+                ? ErrorCode.LOCK_WAIT_TIMEOUT : ErrorCode.CONCURRENT_MODIFICATION;
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

@@ -228,6 +228,41 @@ class LeaveAttachmentPrestoreIntegrationTest {
     }
 
     @Test
+    void failureDuringFileCopyRemovesBothCompletedAndPartialFiles() throws IOException {
+        Long approverId = createOwnerAndApprover("copy-owner", "copy-approver", "1.0");
+        MultipartFile brokenFile = new MockMultipartFile("files", "broken.pdf", "application/pdf", PDF) {
+            private boolean validated;
+
+            @Override
+            public InputStream getInputStream() throws IOException {
+                if (!validated) {
+                    validated = true;
+                    return super.getInputStream();
+                }
+                return new InputStream() {
+                    private int offset;
+
+                    @Override
+                    public int read() throws IOException {
+                        if (offset == PDF.length) throw new IOException("Interrupted attachment copy");
+                        return Byte.toUnsignedInt(PDF[offset++]);
+                    }
+                };
+            }
+        };
+
+        Throwable failure = catchThrowable(() -> leaveRequestService.submit("copy-owner", input(approverId),
+                List.of(pdf("first.pdf"), brokenFile)));
+
+        assertThat(failure).isInstanceOfSatisfying(BusinessException.class, error ->
+                assertThat(error.getErrorCode()).isEqualTo(ErrorCode.ATTACHMENT_STORAGE_FAILED));
+        assertThat(unboundCalls).hasValue(2);
+        assertThat(storedFiles()).isEmpty();
+        assertThat(count("select count(*) from approvaltbl a join usertbl u on u.user_id = a.writer_id "
+                + "where u.login_id = 'copy-owner'")).isZero();
+    }
+
+    @Test
     void cancellationStoresBeforeLockAndRemovesFileWhenRejected() throws Exception {
         Long approverId = createOwnerAndApprover("cancel-owner", "cancel-approver", "1.0");
         Long leaveApprovalId = leaveRequestService.submit("cancel-owner", input(approverId), List.of());

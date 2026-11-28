@@ -88,11 +88,8 @@ class LockContentionIntegrationTest {
 
     @Autowired MySQLContainer<?> mysql;
 
-    /**
-     * MySQL이 후속 트랜잭션의 행 잠금 대기를 보고할 때까지 폴링하는 상한.
-     * 세션 잠금 대기(2초)가 끝나기 전에 확인하고 선행을 풀어야 하므로 그보다 짧게 둔다.
-     */
-    private static final Duration LOCK_WAIT_POLL_LIMIT = Duration.ofMillis(1_500);
+    // 커밋·롤백 검증에만 더 긴 대기 한도를 사용한다. 시간 초과 검증은 기본 2초 설정을 사용한다.
+    private static final Duration LOCK_WAIT_POLL_LIMIT = Duration.ofSeconds(5);
 
     @Test
     void waitingApprovalSeesNotInProgressAfterLeaderCommits() throws Exception {
@@ -321,7 +318,7 @@ class LockContentionIntegrationTest {
         leaderReached = new CountDownLatch(1);
         leaderRelease = new CountDownLatch(1);
         var executor = Executors.newFixedThreadPool(2);
-        try {
+        try (Connection observer = DriverManager.getConnection(mysql.getJdbcUrl(), "root", mysql.getPassword())) {
             Callable<Throwable> leaderTask = () -> {
                 LEADER.set(true);
                 try {
@@ -338,7 +335,14 @@ class LockContentionIntegrationTest {
 
             Callable<FollowerOutcome> followerTask = () -> {
                 long start = System.nanoTime();
-                Throwable failure = catchThrowable(followerAction::run);
+                Throwable failure = catchThrowable(() -> transactions.executeWithoutResult(ignored -> {
+                    jdbc.execute("SET SESSION innodb_lock_wait_timeout=10");
+                    try {
+                        followerAction.run();
+                    } finally {
+                        jdbc.execute("SET SESSION innodb_lock_wait_timeout=2");
+                    }
+                }));
                 return new FollowerOutcome(failure, Duration.ofNanos(System.nanoTime() - start).toMillis());
             };
             Future<FollowerOutcome> follower = executor.submit(followerTask);
@@ -346,7 +350,7 @@ class LockContentionIntegrationTest {
             boolean followerBlocked;
             boolean followerFinishedWhileHeld;
             try {
-                followerBlocked = awaitLockWait(expectedTable, leaderConnectionId);
+                followerBlocked = awaitLockWait(observer, expectedTable, leaderConnectionId);
                 followerFinishedWhileHeld = follower.isDone();
             } finally {
                 leaderRelease.countDown();
@@ -368,7 +372,7 @@ class LockContentionIntegrationTest {
      * performance_schema에서 "선행 연결이 쥔 잠금 때문에 다른 트랜잭션이 {@code table}의 행 잠금을 기다리는" 행이
      * 정확히 1개 보일 때까지 폴링한다. 테스트 계정에는 performance_schema 조회 권한이 없어 컨테이너 root로 별도 연결한다.
      */
-    private boolean awaitLockWait(String table, long blockingConnectionId) throws Exception {
+    private boolean awaitLockWait(Connection observer, String table, long blockingConnectionId) throws Exception {
         String sql = """
                 select count(*)
                 from performance_schema.data_lock_waits w
@@ -384,8 +388,7 @@ class LockContentionIntegrationTest {
                   and requesting.processlist_id <> ?
                 """;
         long deadline = System.nanoTime() + LOCK_WAIT_POLL_LIMIT.toNanos();
-        try (Connection root = DriverManager.getConnection(mysql.getJdbcUrl(), "root", mysql.getPassword());
-             PreparedStatement statement = root.prepareStatement(sql)) {
+        try (PreparedStatement statement = observer.prepareStatement(sql)) {
             statement.setString(1, mysql.getDatabaseName());
             statement.setString(2, table);
             statement.setLong(3, blockingConnectionId);

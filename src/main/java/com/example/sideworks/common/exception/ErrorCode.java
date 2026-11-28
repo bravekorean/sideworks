@@ -13,6 +13,7 @@ public enum ErrorCode {
     TEMPLATE_INVALID_MEMBERS(HttpStatus.BAD_REQUEST, "TEMPLATE_INVALID_MEMBERS", "결재자·참조자 구성 또는 계정 상태를 확인해주세요."),
     CONCURRENT_MODIFICATION(HttpStatus.CONFLICT, "CONCURRENT_MODIFICATION", "다른 요청에서 데이터가 변경됐습니다. 새로 조회한 뒤 다시 시도해주세요."),
     LOCK_WAIT_TIMEOUT(HttpStatus.CONFLICT, "LOCK_WAIT_TIMEOUT", "다른 요청을 처리하는 중입니다. 잠시 후 다시 시도해주세요."),
+    LOCK_DEADLOCK(HttpStatus.CONFLICT, "LOCK_DEADLOCK", "다른 요청과 처리가 충돌했습니다. 잠시 후 다시 시도해주세요."),
     NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "NOTIFICATION_NOT_FOUND", "알림을 찾을 수 없습니다."),
     LEAVE_HIRE_DATE_REQUIRED(HttpStatus.CONFLICT, "LEAVE_HIRE_DATE_REQUIRED", "입사일이 없어 연차를 부여할 수 없습니다. 인사 관리자에게 입사일 등록을 요청해주세요."),
     LEAVE_YEAR_NOT_ELIGIBLE(HttpStatus.BAD_REQUEST, "LEAVE_YEAR_NOT_ELIGIBLE", "입사 전 연도이거나 조회할 수 없는 연도입니다."),

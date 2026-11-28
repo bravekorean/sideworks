@@ -12,9 +12,13 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
+
+import static java.nio.file.StandardOpenOption.CREATE_NEW;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 @Component
 @Slf4j
@@ -51,14 +55,23 @@ public class LocalFileStorage implements FileStorage {
     private StoredFile write(String storageKey, MultipartFile file) {
         Path target = resolveSafely(storageKey);
 
+        boolean created = false;
+        boolean stored = false;
         try {
             Files.createDirectories(target.getParent());
-            try (InputStream inputStream = file.getInputStream()) {
-                Files.copy(inputStream, target);
+            try (InputStream input = file.getInputStream();
+                 OutputStream output = Files.newOutputStream(target, CREATE_NEW, WRITE)) {
+                created = true;
+                input.transferTo(output);
             }
+            stored = true;
             return new StoredFile(storageKey);
         } catch (IOException e) {
             throw new BusinessException(ErrorCode.ATTACHMENT_STORAGE_FAILED);
+        } finally {
+            if (created && !stored) {
+                delete(storageKey);
+            }
         }
     }
 
