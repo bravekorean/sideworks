@@ -113,7 +113,7 @@ public class AttendanceCorrectionService {
             attachments.upload(approval.getApprovalId(), login, files);
         }
         approval.submit(LocalDateTime.now(clock));
-        var approvalLines = submissionFactory.createLines(approval, List.of(approver), List.of());
+        var approvalLines = submissionFactory.createLines(approval, List.of(approver));
         lines.saveAll(approvalLines);
         approvalHistories.save(submissionFactory.createHistory(approval));
         try {
@@ -122,7 +122,7 @@ public class AttendanceCorrectionService {
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(ErrorCode.ATTENDANCE_CORRECTION_PENDING);
         }
-        notificationWorkflow.onSubmitted(approval, approvalLines.getFirst().getApprover(), List.of());
+        notificationWorkflow.onSubmitted(approval, approvalLines.getFirst(), List.of());
         return approval.getApprovalId();
     }
 

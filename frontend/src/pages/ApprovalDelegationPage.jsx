@@ -58,12 +58,12 @@ export default function ApprovalDelegationPage() {
   }
 
   const cancel = async (entry) => {
-    if (!window.confirm(`${entry.delegateeName}님에게 설정한 위임을 취소할까요? 이미 배정된 결재는 유지됩니다.`)) return
+    if (!window.confirm(`${entry.delegateeName}님에게 설정한 위임을 취소할까요? 처리하지 않은 문서는 원래 결재자에게 돌아갑니다.`)) return
     setBusy(true)
     setFeedback('')
     try {
       await cancelDelegation(entry.approvalDelegationId)
-      setFeedback('위임을 취소했습니다. 이미 배정된 결재는 기존 대리인이 처리합니다.')
+      setFeedback('위임을 취소했습니다. 처리하지 않은 문서는 원래 결재자의 대기함으로 돌아갔습니다.')
       setReload((value) => value + 1)
     } catch (error) {
       setFeedback(error.response?.data?.message ?? '위임을 취소하지 못했습니다.')
@@ -74,7 +74,7 @@ export default function ApprovalDelegationPage() {
 
   return <div className="delegation-page">
     <header><span className="section-kicker">APPROVAL · DELEGATION</span><h1>기간제 결재 위임</h1>
-      <p>위임 기간에 새로 도착하는 결재만 대리인에게 배정됩니다. 기존 대기 문서는 변경되지 않습니다.</p></header>
+      <p>시작일 0시부터 종료일 24시까지(서버 시간대 기준) 내 차례인 결재를 대리인이 처리합니다. 이미 대기 중인 문서도 포함되며, 기간이 끝나거나 취소하면 처리하지 않은 문서는 나에게 돌아옵니다. 대리인이 작성자·참조자 등으로 참여한 문서는 내가 처리합니다.</p></header>
     {feedback && <p aria-live="polite" className="detail-feedback">{feedback}</p>}
     <section className="panel delegation-panel">
       <h2>위임 등록</h2>

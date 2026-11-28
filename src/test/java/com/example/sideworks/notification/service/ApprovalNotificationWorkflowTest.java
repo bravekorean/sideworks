@@ -24,11 +24,17 @@ class ApprovalNotificationWorkflowTest {
     @Mock NotificationService notifications;
     @Mock ApprovalLineRepository lines;
     @Mock ApprovalCcRepository ccs;
+    @Mock com.example.sideworks.approval.service.ApprovalDelegationService delegations;
     ApprovalNotificationWorkflow workflow;
 
     @BeforeEach
     void setUp() {
-        workflow = new ApprovalNotificationWorkflow(notifications, lines, ccs);
+        java.time.Clock clock = java.time.Clock.fixed(
+                java.time.Instant.parse("2026-11-28T01:00:00Z"), java.time.ZoneId.of("Asia/Seoul"));
+        workflow = new ApprovalNotificationWorkflow(notifications, lines, ccs, delegations, clock);
+        // 기본은 위임이 없는 상태: 원 결재자가 처리자다.
+        lenient().when(delegations.resolveProcessor(any(), any(), any()))
+                .thenAnswer(invocation -> ((ApprovalLine) invocation.getArgument(1)).getApprover());
     }
 
     @Test
@@ -37,7 +43,7 @@ class ApprovalNotificationWorkflowTest {
         User approver = user(2L);
         User cc = user(3L);
 
-        workflow.onSubmitted(approval, approver, List.of(approver, cc));
+        workflow.onSubmitted(approval, line(approver), List.of(approver, cc));
 
         verify(notifications).record(eq(approval), eq(approver), eq(NotificationType.APPROVAL_REQUEST),
                 eq("SUBMITTED"), anyString(), anyString());
@@ -89,10 +95,34 @@ class ApprovalNotificationWorkflowTest {
         when(ccs.findByApproval_ApprovalId(10L)).thenReturn(List.of(ccRow));
         when(ccRow.getCcUser()).thenReturn(approverAndCc);
 
-        workflow.onCanceled(approval, approverAndCc);
+        workflow.onCanceled(approval, line(approverAndCc));
 
         verify(notifications, times(1)).record(eq(approval), eq(approverAndCc),
                 eq(NotificationType.APPROVAL_CANCELED), eq("CANCELED"), anyString(), anyString());
+    }
+
+    @Test
+    void 대결_기간에_다음_단계가_활성화되면_대결자에게_알린다() {
+        Approval approval = approval();
+        User original = mock(User.class);
+        User delegatee = user(5L);
+        ApprovalLine next = line(original);
+        when(approval.isInProgress()).thenReturn(true);
+        when(approval.getCurrentStep()).thenReturn(2);
+        when(lines.findByApproval_ApprovalIdAndApprovalStep(10L, 2)).thenReturn(Optional.of(next));
+        when(delegations.resolveProcessor(approval, next, java.time.LocalDate.of(2026, 11, 28))).thenReturn(delegatee);
+
+        workflow.onApproved(approval, 1);
+
+        verify(notifications).record(eq(approval), eq(delegatee), eq(NotificationType.APPROVAL_REQUEST),
+                eq("STEP_APPROVED:1"), anyString(), anyString());
+        verify(notifications, never()).record(eq(approval), eq(original), any(), anyString(), anyString(), anyString());
+    }
+
+    private ApprovalLine line(User approver) {
+        ApprovalLine line = mock(ApprovalLine.class);
+        lenient().when(line.getApprover()).thenReturn(approver);
+        return line;
     }
 
     private Approval approval() {

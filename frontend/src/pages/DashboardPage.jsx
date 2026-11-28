@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { getApprovalDashboard } from '../api/approvalApi'
 import { getMyProfile } from '../api/userApi'
+import DelegationBadge from '../components/DelegationBadge'
 
 function formatDateTime(value) {
   return value ? value.replace('T', ' ').slice(0, 16) : '-'
@@ -104,7 +105,7 @@ function DashboardPage() {
             {dashboard && pendingApprovals.length === 0 && <div className="dashboard-pending-state">현재 처리할 결재 문서가 없습니다.</div>}
             {pendingApprovals.map((approval) => <button className="approval-row" key={approval.approvalId} onClick={() => navigate(`/approvals/${approval.approvalId}`, { state: { from: '/dashboard', fromLabel: '대시보드' } })} type="button">
               <span className="document-mark">결</span>
-              <span className="approval-row__main"><strong>{approval.title}</strong><small>AP-{approval.approvalId} · {approval.currentStep}단계</small></span>
+              <span className="approval-row__main"><strong>{approval.title}</strong><small>AP-{approval.approvalId} · {approval.currentStep}단계</small><DelegationBadge approval={approval} /></span>
               <span className="approval-row__writer"><span className="mini-avatar">{approval.writerName.slice(0, 1)}</span>{approval.writerName}</span>
               <span className="approval-row__date">{formatDateTime(approval.submittedAt)}</span><span className="status-chip status-chip--pending">결재 대기</span><span className="row-chevron">›</span>
             </button>)}

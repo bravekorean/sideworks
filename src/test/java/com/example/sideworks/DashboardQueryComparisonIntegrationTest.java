@@ -240,7 +240,7 @@ class DashboardQueryComparisonIntegrationTest {
 
     private Map<String, Supplier<?>> queries(long userId, boolean optimized) {
         Map<String, Supplier<?>> queries = new LinkedHashMap<>();
-        queries.put("pending", () -> approvals.findPendingByApproverId(userId, null, PageRequest.of(0, 4)));
+        queries.put("pending", () -> approvals.findPendingByProcessorId(userId, java.time.LocalDate.now(), null, PageRequest.of(0, 4)));
         if (optimized) {
             queries.put("sent", () -> approvals.countInProgressByWriterId(userId));
             queries.put("drafts", () -> approvals.countDraftsByWriterId(userId));

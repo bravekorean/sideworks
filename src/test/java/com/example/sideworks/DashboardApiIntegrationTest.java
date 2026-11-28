@@ -94,7 +94,7 @@ class DashboardApiIntegrationTest {
     void authenticatedDashboardMatchesExistingViewsForEveryRole(UserRole role) throws Exception {
         jdbc.update("update usertbl set user_role=? where user_id=1", role.name());
         authenticate("bench-1", 1, role);
-        var pending = approvals.findPendingByApproverId(1L, null, PageRequest.of(0, 4));
+        var pending = approvals.findPendingByProcessorId(1L, java.time.LocalDate.now(), null, PageRequest.of(0, 4));
         var inProgress = approvals.findSentByWriterId(1L, null,
                 com.example.sideworks.approval.entity.ApprovalStatus.IN_PROGRESS, PageRequest.of(0, 1));
         var drafts = approvals.findDraftsByWriterId(1L, null, PageRequest.of(0, 1));

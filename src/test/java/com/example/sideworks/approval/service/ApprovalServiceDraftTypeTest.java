@@ -35,7 +35,8 @@ class ApprovalServiceDraftTypeTest {
                 null, null, new ApprovalDocumentTypeService(types),
                 org.mockito.Mockito.mock(com.example.sideworks.notification.service.ApprovalNotificationWorkflow.class),
                 org.mockito.Mockito.mock(ApprovalTemplateService.class),
-                org.mockito.Mockito.mock(ApprovalDelegationService.class));
+                org.mockito.Mockito.mock(ApprovalDelegationService.class),
+                java.time.Clock.fixed(java.time.Instant.parse("2026-11-28T01:00:00Z"), java.time.ZoneId.of("Asia/Seoul")));
     }
 
     @Test void 세부종류_FK와_기존_업무분류를_함께_저장한다() {

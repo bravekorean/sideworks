@@ -115,7 +115,7 @@ public class LeaveCancellationService {
         submissionValidator.validateParticipants(approval, approvers, ccUsers);
         if (files != null && !files.isEmpty()) attachments.upload(approval.getApprovalId(), loginId, files);
         approval.submit(LocalDateTime.now(clock));
-        var approvalLines = submissionFactory.createLines(approval, approvers, ccUsers);
+        var approvalLines = submissionFactory.createLines(approval, approvers);
         lines.saveAll(approvalLines);
         if (!ccUsers.isEmpty()) approvalCcs.saveAll(submissionFactory.createCcs(approval, ccUsers));
         approvalHistories.save(submissionFactory.createHistory(approval));
@@ -124,7 +124,7 @@ public class LeaveCancellationService {
         } catch (DataIntegrityViolationException exception) {
             throw new BusinessException(ErrorCode.LEAVE_CANCELLATION_PENDING);
         }
-        notificationWorkflow.onSubmitted(approval, approvalLines.getFirst().getApprover(), ccUsers);
+        notificationWorkflow.onSubmitted(approval, approvalLines.getFirst(), ccUsers);
         return approval.getApprovalId();
     }
 

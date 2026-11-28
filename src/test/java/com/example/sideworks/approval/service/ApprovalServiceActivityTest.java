@@ -75,7 +75,8 @@ class ApprovalServiceActivityTest {
                 org.mockito.Mockito.mock(ApprovalDocumentTypeService.class),
                 org.mockito.Mockito.mock(com.example.sideworks.notification.service.ApprovalNotificationWorkflow.class),
                 org.mockito.Mockito.mock(ApprovalTemplateService.class),
-                org.mockito.Mockito.mock(ApprovalDelegationService.class)
+                org.mockito.Mockito.mock(ApprovalDelegationService.class),
+                java.time.Clock.fixed(java.time.Instant.parse("2026-11-28T01:00:00Z"), java.time.ZoneId.of("Asia/Seoul"))
         );
     }
 
@@ -109,7 +110,7 @@ class ApprovalServiceActivityTest {
         var pendingPage = new PageImpl<>(List.of(pendingItem), PageRequest.of(0, 4), 7);
         when(userRepository.findByLoginId("viewer")).thenReturn(Optional.of(user));
         when(user.getUserId()).thenReturn(2L);
-        when(approvalRepository.findPendingByApproverId(2L, null, PageRequest.of(0, 4))).thenReturn(pendingPage);
+        when(approvalRepository.findPendingByProcessorId(2L, java.time.LocalDate.of(2026, 11, 28), null, PageRequest.of(0, 4))).thenReturn(pendingPage);
         when(approvalRepository.countInProgressByWriterId(2L)).thenReturn(3L);
         when(approvalRepository.countDraftsByWriterId(2L)).thenReturn(4L);
         when(approvalRepository.countCcByUserId(2L)).thenReturn(5L);
@@ -124,7 +125,7 @@ class ApprovalServiceActivityTest {
         assertThat(result.pendingApprovals()).containsExactly(pendingItem);
         assertThat(result.recentActivities()).containsExactly(activity);
         verify(userRepository).findByLoginId("viewer");
-        verify(approvalRepository).findPendingByApproverId(2L, null, PageRequest.of(0, 4));
+        verify(approvalRepository).findPendingByProcessorId(2L, java.time.LocalDate.of(2026, 11, 28), null, PageRequest.of(0, 4));
         verify(approvalRepository).countInProgressByWriterId(2L);
         verify(approvalRepository).countDraftsByWriterId(2L);
         verify(approvalRepository).countCcByUserId(2L);
@@ -137,7 +138,7 @@ class ApprovalServiceActivityTest {
         User user = mock(User.class);
         when(userRepository.findByLoginId("viewer")).thenReturn(Optional.of(user));
         when(user.getUserId()).thenReturn(2L);
-        when(approvalRepository.findPendingByApproverId(2L, null, PageRequest.of(0, 4)))
+        when(approvalRepository.findPendingByProcessorId(2L, java.time.LocalDate.of(2026, 11, 28), null, PageRequest.of(0, 4)))
                 .thenReturn(Page.empty(PageRequest.of(0, 4)));
         when(approvalRepository.findLatestActivitiesByUserId(2L, 5)).thenReturn(List.of());
 
@@ -167,10 +168,10 @@ class ApprovalServiceActivityTest {
         Page<ApprovalListResponse> expected = Page.empty(pageable);
         when(userRepository.findByLoginId("admin")).thenReturn(Optional.of(admin));
         when(admin.getUserRole()).thenReturn(UserRole.SUPER_ADMIN);
-        when(approvalRepository.findForManagement("문서", null, true, pageable)).thenReturn(expected);
+        when(approvalRepository.findForManagement("문서", null, true, java.time.LocalDate.of(2026, 11, 28), pageable)).thenReturn(expected);
 
         assertThat(approvalService.getManagedApprovals("admin", "문서", null, true, pageable)).isSameAs(expected);
-        verify(approvalRepository).findForManagement("문서", null, true, pageable);
+        verify(approvalRepository).findForManagement("문서", null, true, java.time.LocalDate.of(2026, 11, 28), pageable);
     }
 
     @Test

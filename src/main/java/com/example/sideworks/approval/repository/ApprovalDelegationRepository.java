@@ -25,10 +25,13 @@ public interface ApprovalDelegationRepository extends JpaRepository<ApprovalDele
     @Query("update ApprovalDelegation d set d.canceledAt = :at where d.approvalDelegationId = :id and d.canceledAt is null")
     int cancelIfActive(@Param("id") Long id, @Param("at") LocalDateTime at);
 
+    // 처리 API 전용: 문서 잠금 뒤 잠금 읽기로 최신 커밋(취소 포함)을 본다. 취소 트랜잭션이 진행 중이면 커밋까지 기다린다.
     @EntityGraph(attributePaths = "delegatee")
     @Lock(LockModeType.PESSIMISTIC_READ)
-    List<ApprovalDelegation> findByDelegator_UserIdAndCanceledAtIsNullAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
-            Long delegatorId, LocalDate dateForStart, LocalDate dateForEnd);
+    @Query("select d from ApprovalDelegation d where d.delegator.userId = :delegatorId "
+            + "and d.canceledAt is null and d.startDate <= :today and d.endDate >= :today")
+    List<ApprovalDelegation> findActiveForUpdate(@Param("delegatorId") Long delegatorId,
+                                                 @Param("today") LocalDate today);
 
     @EntityGraph(attributePaths = {"delegator", "delegatee", "creator"})
     List<ApprovalDelegation> findByDelegator_UserIdOrderByStartDateDescApprovalDelegationIdDesc(Long delegatorId);

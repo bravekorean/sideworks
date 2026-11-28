@@ -52,7 +52,8 @@ class ApprovalAttachmentServiceTest {
         properties.setStoragePath(java.nio.file.Path.of("attachments"));
         service = new ApprovalAttachmentService(
                 attachmentRepository, approvalRepository, userRepository,
-                fileStorage, fileValidator, properties
+                fileStorage, fileValidator, properties,
+                java.time.Clock.systemDefaultZone()
         );
         TransactionSynchronizationManager.initSynchronization();
     }
