@@ -6,6 +6,7 @@ import com.example.sideworks.approval.dto.ApprovalDetailHeaderResponse;
 import com.example.sideworks.approval.dto.ApprovalHistoryResponse;
 import com.example.sideworks.approval.dto.ApprovalLineResponse;
 import com.example.sideworks.approval.dto.ApprovalListResponse;
+import com.example.sideworks.approval.entity.ApprovalActionType;
 import com.example.sideworks.approval.entity.ApprovalLineStatus;
 import com.example.sideworks.approval.entity.ApprovalStatus;
 import com.example.sideworks.user.entity.QUser;
@@ -16,11 +17,14 @@ import com.querydsl.core.types.Projections;
 import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQuery;
 import com.querydsl.jpa.impl.JPAQueryFactory;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -33,7 +37,50 @@ import static com.example.sideworks.approval.entity.QApprovalLine.approvalLine;
 @RequiredArgsConstructor
 public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
 
+    // 대시보드 최근 활동은 전체 이력 중 최신 구간부터 확인한다. 측정 근거는 PERFORMANCE.md를 참조한다.
+    private static final int LATEST_ACTIVITY_PROBE_SIZE = 100;
+
+    // 접근 가능한 문서 ID를 역할별 인덱스로 모은 뒤 이력을 조인한다.
+    // JPQL/QueryDSL은 UNION과 CTE를 생성하지 않으므로 이 경로만 네이티브 SQL로 둔다.
+    // 반환 컬럼·정렬·임시저장 권한은 accessibleByUser와 동일해야 한다.
+    private static final String VISIBLE_APPROVALS_CTE = """
+            with visible as (
+                select a.approval_id from approvaltbl a where a.writer_id = :userId
+                union
+                select l.approval_id from approval_linetbl l
+                join approvaltbl a on a.approval_id = l.approval_id
+                where l.approver_id = :userId and a.approval_status <> 'DRAFT'
+                union
+                select c.approval_id from approval_cctbl c
+                join approvaltbl a on a.approval_id = c.approval_id
+                where c.user_id = :userId and a.approval_status <> 'DRAFT'
+            )
+            """;
+
+    private static final String VISIBLE_ACTIVITIES_PAGE_SQL = VISIBLE_APPROVALS_CTE + """
+            , latest as (
+                select h.approval_history_id, h.approval_id, h.actor_id, h.action_step, h.action_type, h.created_at
+                from visible v
+                join approval_historytbl h on h.approval_id = v.approval_id
+                order by h.created_at desc, h.approval_history_id desc
+                limit :limit offset :offset
+            )
+            select h.approval_history_id, a.approval_id, a.title, u.user_id, u.user_name,
+                   h.action_step, h.action_type, h.created_at
+            from latest h
+            join approvaltbl a on a.approval_id = h.approval_id
+            join usertbl u on u.user_id = h.actor_id
+            order by h.created_at desc, h.approval_history_id desc
+            """;
+
+    private static final String VISIBLE_ACTIVITIES_COUNT_SQL = VISIBLE_APPROVALS_CTE + """
+            select count(*)
+            from visible v
+            join approval_historytbl h on h.approval_id = v.approval_id
+            """;
+
     private final JPAQueryFactory queryFactory;
+    private final EntityManager entityManager;
 
     @Override
     public long countInProgressByWriterId(Long writerId) {
@@ -80,7 +127,78 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
         if (limit < 1) {
             throw new IllegalArgumentException("최근 활동 조회 개수는 1 이상이어야 합니다.");
         }
-        return recentActivitiesQuery(userId).limit(limit).fetch();
+        return findVisibleActivities(userId, 0, limit);
+    }
+
+    // 최신 이력 구간에서 offset+limit건을 채우면 그 결과를 쓰고, 부족하면 접근 문서 집합으로 다시 조회한다.
+    // 구간 안에서 채웠다면 그보다 최신인 접근 가능 이력은 구간 밖에 존재할 수 없으므로 결과가 같다.
+    private List<ApprovalActivityResponse> findVisibleActivities(Long userId, long offset, int limit) {
+        long needed = offset + limit;
+        if (needed <= LATEST_ACTIVITY_PROBE_SIZE) {
+            List<ApprovalActivityResponse> probed = findVisibleAmongLatestHistories(userId, (int) needed);
+            if (probed.size() == needed) {
+                return probed.subList((int) offset, probed.size());
+            }
+        }
+        return findVisibleActivitiesPage(userId, offset, limit);
+    }
+
+    // 이력 정렬 인덱스로 최신 N건의 ID만 읽고, 그 안에서 접근 범위를 판정한다.
+    private List<ApprovalActivityResponse> findVisibleAmongLatestHistories(Long userId, int limit) {
+        List<Long> latestHistoryIds = queryFactory
+                .select(approvalHistory.approvalHistoryId)
+                .from(approvalHistory)
+                .orderBy(
+                        approvalHistory.createdAt.desc(),
+                        approvalHistory.approvalHistoryId.desc()
+                )
+                .limit(LATEST_ACTIVITY_PROBE_SIZE)
+                .fetch();
+        if (latestHistoryIds.isEmpty()) {
+            return List.of();
+        }
+        return recentActivitiesQuery(userId)
+                .where(approvalHistory.approvalHistoryId.in(latestHistoryIds))
+                .limit(limit)
+                .fetch();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<ApprovalActivityResponse> findVisibleActivitiesPage(Long userId, long offset, int limit) {
+        List<Object[]> rows = entityManager.createNativeQuery(VISIBLE_ACTIVITIES_PAGE_SQL)
+                .setParameter("userId", userId)
+                .setParameter("limit", limit)
+                .setParameter("offset", offset)
+                .getResultList();
+        return rows.stream().map(ApprovalRepositoryImpl::toActivityResponse).toList();
+    }
+
+    // OR + EXISTS count는 참여 문서가 없어도 이력 전체를 판정하므로, 접근 문서 집합에서 센다.
+    private long countVisibleActivities(Long userId) {
+        Number total = (Number) entityManager.createNativeQuery(VISIBLE_ACTIVITIES_COUNT_SQL)
+                .setParameter("userId", userId)
+                .getSingleResult();
+        return total.longValue();
+    }
+
+    private static ApprovalActivityResponse toActivityResponse(Object[] row) {
+        return new ApprovalActivityResponse(
+                ((Number) row[0]).longValue(),
+                ((Number) row[1]).longValue(),
+                (String) row[2],
+                ((Number) row[3]).longValue(),
+                (String) row[4],
+                ((Number) row[5]).intValue(),
+                ApprovalActionType.valueOf((String) row[6]),
+                toLocalDateTime(row[7])
+        );
+    }
+
+    private static LocalDateTime toLocalDateTime(Object value) {
+        if (value instanceof Timestamp timestamp) {
+            return timestamp.toLocalDateTime();
+        }
+        return (LocalDateTime) value;
     }
 
     @Override
@@ -294,22 +412,12 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
 
     @Override
     public Page<ApprovalActivityResponse> findRecentActivitiesByUserId(Long userId, Pageable pageable) {
-        List<ApprovalActivityResponse> content = recentActivitiesQuery(userId)
-                .offset(pageable.getOffset())
-                .limit(pageable.getPageSize())
-                .fetch();
-
-        Long total = queryFactory
-                .select(approvalHistory.count())
-                .from(approvalHistory)
-                .join(approvalHistory.approval, approval)
-                .where(accessibleByUser(userId))
-                .fetchOne();
-
-        return toPage(content, pageable, total);
+        List<ApprovalActivityResponse> content =
+                findVisibleActivities(userId, pageable.getOffset(), pageable.getPageSize());
+        return toPage(content, pageable, countVisibleActivities(userId));
     }
 
-    // 두 조회에서 접근 범위와 정렬이 달라지지 않도록 목록 쿼리를 공유한다.
+    // 최신 이력 구간 안의 접근 판정에 쓴다. 네이티브 fallback과 접근 범위·정렬이 같아야 한다.
     private JPAQuery<ApprovalActivityResponse> recentActivitiesQuery(Long userId) {
         return queryFactory
                 .select(Projections.constructor(

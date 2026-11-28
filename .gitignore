@@ -64,7 +64,8 @@ docs/*
 # logs
 /logs/
 /sideworks-data/
-/database/
+/database/*
+!/database/migrations/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

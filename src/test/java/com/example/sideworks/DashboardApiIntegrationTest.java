@@ -115,8 +115,9 @@ class DashboardApiIntegrationTest {
                 .andExpect(jsonPath("$.recentActivities.length()").value(5))
                 .andReturn();
 
-        // One user lookup plus six approval queries; excludes token parsing and profile requests.
-        assertThat(statistics.getPrepareStatementCount() - before).isEqualTo(7);
+        // One user lookup plus seven approval queries; excludes token parsing and profile requests.
+        // Recent activity takes two statements when the latest-history probe fills the page.
+        assertThat(statistics.getPrepareStatementCount() - before).isEqualTo(8);
         var body = mapper.readTree(result.getResponse().getContentAsString());
         // Parse both sides as JSON so Long DTO IDs and parsed integer nodes compare by wire values.
         assertThat(body.get("pendingApprovals"))
