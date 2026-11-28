@@ -4,6 +4,7 @@ import com.example.sideworks.approval.entity.Approval;
 import com.example.sideworks.approval.entity.ApprovalLine;
 import com.example.sideworks.approval.repository.ApprovalCcRepository;
 import com.example.sideworks.approval.repository.ApprovalLineRepository;
+import com.example.sideworks.approval.service.ApprovalDelegationService;
 import com.example.sideworks.notification.entity.NotificationType;
 import com.example.sideworks.user.entity.User;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,11 +24,13 @@ public class ApprovalNotificationWorkflow {
     private final NotificationService notifications;
     private final ApprovalLineRepository lines;
     private final ApprovalCcRepository ccs;
+    private final ApprovalDelegationService delegations;
+    private final Clock clock;
 
     @Transactional(propagation = Propagation.MANDATORY)
-    public void onSubmitted(Approval approval, User firstApprover, List<User> ccUsers) {
+    public void onSubmitted(Approval approval, ApprovalLine firstLine, List<User> ccUsers) {
         Map<Long, Recipient> recipients = new LinkedHashMap<>();
-        add(recipients, firstApprover, NotificationType.APPROVAL_REQUEST);
+        add(recipients, currentProcessor(approval, firstLine), NotificationType.APPROVAL_REQUEST);
         ccUsers.forEach(cc -> add(recipients, cc, NotificationType.APPROVAL_REFERENCE));
         record(approval, "SUBMITTED", "새 결재 문서", recipients);
     }
@@ -35,9 +40,9 @@ public class ApprovalNotificationWorkflow {
         if (approval.isInProgress()) {
             ApprovalLine next = lines.findByApproval_ApprovalIdAndApprovalStep(
                     approval.getApprovalId(), approval.getCurrentStep()).orElseThrow();
+            User processor = currentProcessor(approval, next);
             record(approval, "STEP_APPROVED:" + processedStep, "결재 요청",
-                    Map.of(next.getApprover().getUserId(),
-                            new Recipient(next.getApprover(), NotificationType.APPROVAL_REQUEST)));
+                    Map.of(processor.getUserId(), new Recipient(processor, NotificationType.APPROVAL_REQUEST)));
             return;
         }
         Map<Long, Recipient> recipients = new LinkedHashMap<>();
@@ -55,9 +60,9 @@ public class ApprovalNotificationWorkflow {
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
-    public void onCanceled(Approval approval, User currentApprover) {
+    public void onCanceled(Approval approval, ApprovalLine currentLine) {
         Map<Long, Recipient> recipients = new LinkedHashMap<>();
-        add(recipients, currentApprover, NotificationType.APPROVAL_CANCELED);
+        add(recipients, currentProcessor(approval, currentLine), NotificationType.APPROVAL_CANCELED);
         addCcs(approval, recipients, NotificationType.APPROVAL_CANCELED);
         record(approval, "CANCELED", "상신 취소", recipients);
     }
@@ -70,6 +75,11 @@ public class ApprovalNotificationWorkflow {
                 .forEach(line -> add(recipients, line.getApprover(), NotificationType.APPROVAL_TERMINATED));
         addCcs(approval, recipients, NotificationType.APPROVAL_TERMINATED);
         record(approval, "TERMINATED", "결재 강제 종료", recipients);
+    }
+
+    // 알림을 만드는 시점에 대기함에서 이 문서를 보게 될 사람에게 보낸다. 이후 기간이 바뀌면 대기함이 기준이다.
+    private User currentProcessor(Approval approval, ApprovalLine line) {
+        return delegations.resolveProcessor(approval, line, LocalDate.now(clock));
     }
 
     private void addCcs(Approval approval, Map<Long, Recipient> recipients, NotificationType type) {

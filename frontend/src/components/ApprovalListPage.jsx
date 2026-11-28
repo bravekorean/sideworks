@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { getApprovalBox } from '../api/approvalApi'
+import DelegationBadge from './DelegationBadge'
 
 const PAGE_SIZE = 5
 
@@ -238,6 +239,7 @@ function ApprovalListPage({
                         >
                           {approval.title}
                         </Link>
+                        <DelegationBadge approval={approval} />
                       </td>
                       <td>{approval.writerName}</td>
                       <td>

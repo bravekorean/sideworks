@@ -79,7 +79,8 @@ class ApprovalServiceDetailTest {
                 org.mockito.Mockito.mock(ApprovalDocumentTypeService.class),
                 org.mockito.Mockito.mock(com.example.sideworks.notification.service.ApprovalNotificationWorkflow.class),
                 org.mockito.Mockito.mock(ApprovalTemplateService.class),
-                org.mockito.Mockito.mock(ApprovalDelegationService.class)
+                org.mockito.Mockito.mock(ApprovalDelegationService.class),
+                java.time.Clock.fixed(java.time.Instant.parse("2026-11-28T01:00:00Z"), java.time.ZoneId.of("Asia/Seoul"))
         );
     }
 
@@ -90,9 +91,9 @@ class ApprovalServiceDetailTest {
         ApprovalDetailHeaderResponse header = header();
 
         when(userRepository.findByLoginId(LOGIN_ID)).thenReturn(Optional.of(viewer));
-        when(approvalRepository.findAccessibleDetailHeader(APPROVAL_ID, VIEWER_ID))
+        when(approvalRepository.findAccessibleDetailHeader(APPROVAL_ID, VIEWER_ID, java.time.LocalDate.of(2026, 11, 28)))
                 .thenReturn(Optional.of(header));
-        when(approvalRepository.findDetailLinesByApprovalId(APPROVAL_ID)).thenReturn(List.of());
+        when(approvalRepository.findDetailLinesByApprovalId(APPROVAL_ID, java.time.LocalDate.of(2026, 11, 28))).thenReturn(List.of());
         when(approvalRepository.findDetailCcsByApprovalId(APPROVAL_ID)).thenReturn(List.of());
         when(approvalRepository.findDetailHistoriesByApprovalId(APPROVAL_ID)).thenReturn(List.of());
 
@@ -113,14 +114,14 @@ class ApprovalServiceDetailTest {
         when(userRepository.findByLoginId(LOGIN_ID)).thenReturn(Optional.of(viewer));
         when(approvalRepository.findDetailHeaderByApprovalId(APPROVAL_ID))
                 .thenReturn(Optional.of(header()));
-        when(approvalRepository.findDetailLinesByApprovalId(APPROVAL_ID)).thenReturn(List.of());
+        when(approvalRepository.findDetailLinesByApprovalId(APPROVAL_ID, java.time.LocalDate.of(2026, 11, 28))).thenReturn(List.of());
         when(approvalRepository.findDetailCcsByApprovalId(APPROVAL_ID)).thenReturn(List.of());
         when(approvalRepository.findDetailHistoriesByApprovalId(APPROVAL_ID)).thenReturn(List.of());
 
         ApprovalDetailResponse response = approvalService.getApprovalDetail(APPROVAL_ID, LOGIN_ID);
 
         assertThat(response.getApprovalId()).isEqualTo(APPROVAL_ID);
-        verify(approvalRepository, never()).findAccessibleDetailHeader(APPROVAL_ID, VIEWER_ID);
+        verify(approvalRepository, never()).findAccessibleDetailHeader(APPROVAL_ID, VIEWER_ID, java.time.LocalDate.of(2026, 11, 28));
     }
 
     @Test
@@ -138,7 +139,7 @@ class ApprovalServiceDetailTest {
         when(viewer.getUserId()).thenReturn(VIEWER_ID);
 
         when(userRepository.findByLoginId(LOGIN_ID)).thenReturn(Optional.of(viewer));
-        when(approvalRepository.findAccessibleDetailHeader(APPROVAL_ID, VIEWER_ID))
+        when(approvalRepository.findAccessibleDetailHeader(APPROVAL_ID, VIEWER_ID, java.time.LocalDate.of(2026, 11, 28)))
                 .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> approvalService.getApprovalDetail(APPROVAL_ID, LOGIN_ID))
@@ -146,7 +147,7 @@ class ApprovalServiceDetailTest {
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.APPROVAL_NOT_FOUND);
 
-        verify(approvalRepository, never()).findDetailLinesByApprovalId(APPROVAL_ID);
+        verify(approvalRepository, never()).findDetailLinesByApprovalId(APPROVAL_ID, java.time.LocalDate.of(2026, 11, 28));
         verify(approvalRepository, never()).findDetailCcsByApprovalId(APPROVAL_ID);
         verify(approvalRepository, never()).findDetailHistoriesByApprovalId(APPROVAL_ID);
     }

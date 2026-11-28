@@ -21,6 +21,7 @@ import com.example.sideworks.approval.entity.ApprovalActionType;
 import com.example.sideworks.approval.entity.ApprovalCc;
 import com.example.sideworks.approval.entity.ApprovalHistory;
 import com.example.sideworks.approval.entity.ApprovalLine;
+import com.example.sideworks.approval.entity.ApprovalLineStatus;
 import com.example.sideworks.approval.entity.ApprovalStatus;
 import com.example.sideworks.approval.factory.ApprovalSubmissionFactory;
 import com.example.sideworks.approval.repository.ApprovalCcRepository;
@@ -45,6 +46,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Clock;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -77,14 +80,16 @@ public class ApprovalService {
     private final ApprovalNotificationWorkflow notificationWorkflow;
     private final ApprovalTemplateService approvalTemplateService;
     private final ApprovalDelegationService delegationService;
+    // 모든 시각·날짜는 애플리케이션 시간대(app.time-zone, 기본 Asia/Seoul) 기준이다.
+    private final Clock clock;
 
     // 최근 활동은 최신 이력 ID 조회와 접근 판정을 두 문장으로 나눠 실행하므로 같은 스냅샷이 필요하다.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ApprovalDashboardResponse getDashboard(String loginId) {
         User user = findUserByLoginId(loginId);
         Long userId = user.getUserId();
-        Page<ApprovalListResponse> pending = approvalRepository.findPendingByApproverId(
-                userId, null, PageRequest.of(0, DASHBOARD_PENDING_SIZE));
+        Page<ApprovalListResponse> pending = approvalRepository.findPendingByProcessorId(
+                userId, today(), null, PageRequest.of(0, DASHBOARD_PENDING_SIZE));
         ApprovalDashboardResponse.Summary summary = new ApprovalDashboardResponse.Summary(
                 pending.getTotalElements(),
                 approvalRepository.countInProgressByWriterId(userId),
@@ -100,7 +105,7 @@ public class ApprovalService {
         if (actor.getUserRole() != UserRole.SUPER_ADMIN) {
             throw new BusinessException(ErrorCode.APPROVAL_MANAGEMENT_FORBIDDEN);
         }
-        return approvalRepository.findForManagement(keyword, status, blockedOnly, pageable);
+        return approvalRepository.findForManagement(keyword, status, blockedOnly, today(), pageable);
     }
 
     @Transactional
@@ -172,20 +177,16 @@ public class ApprovalService {
 
         submissionValidator.validateParticipants(approval, approvers, ccUsers);
 
-        List<ApprovalLine> approvalLines = submissionFactory.createLines(
-                approval,
-                approvers,
-                ccUsers
-        );
+        List<ApprovalLine> approvalLines = submissionFactory.createLines(approval, approvers);
         List<ApprovalCc> approvalCcs = submissionFactory.createCcs(
                 approval,
                 ccUsers
         );
         ApprovalHistory history = submissionFactory.createHistory(approval);
 
-        approval.submit(LocalDateTime.now());
+        approval.submit(LocalDateTime.now(clock));
         saveSubmissionDetails(approvalLines, approvalCcs, history);
-        notificationWorkflow.onSubmitted(approval, approvalLines.getFirst().getApprover(), ccUsers);
+        notificationWorkflow.onSubmitted(approval, approvalLines.getFirst(), ccUsers);
     }
 
     private void validateGeneralDraft(Approval approval) {
@@ -202,11 +203,12 @@ public class ApprovalService {
     public void approveApproval(Long approvalId, String loginId, ApprovalDecisionRequest request) {
         User actor = findUserByLoginId(loginId);
         Approval approval = findApprovalForDecision(approvalId);
+        // 문서 잠금을 얻은 뒤의 서버 시각으로 기간과 권한을 판단한다. 잠금을 기다리는 동안 위임이 끝났으면 거부된다.
+        LocalDateTime processedAt = LocalDateTime.now(clock);
         ApprovalLine currentLine = findCurrentApprovalLine(approval);
 
-        validateCurrentApprover(currentLine, actor);
+        validateCurrentProcessor(approval, currentLine, actor, processedAt.toLocalDate());
         String comment = normalizeDecisionComment(request, false);
-        LocalDateTime processedAt = LocalDateTime.now();
         Optional<ApprovalLine> nextLine = approvalLineRepository
                 .findFirstByApproval_ApprovalIdAndApprovalStepGreaterThanOrderByApprovalStepAsc(
                         approval.getApprovalId(), currentLine.getApprovalStep());
@@ -217,7 +219,7 @@ public class ApprovalService {
             leaveRequests.onDecision(approval, actor, true);
             leaveCancellations.onDecision(approval, actor, true);
         }
-        currentLine.approve(comment, processedAt);
+        currentLine.approve(actor, comment, processedAt);
         advanceApproval(approval, nextLine, processedAt);
         saveDecisionHistory(approval, currentLine, actor, ApprovalActionType.APPROVED, comment);
         notificationWorkflow.onApproved(approval, currentLine.getApprovalStep());
@@ -227,16 +229,17 @@ public class ApprovalService {
     public void rejectApproval(Long approvalId, String loginId, ApprovalDecisionRequest request) {
         User actor = findUserByLoginId(loginId);
         Approval approval = findApprovalForDecision(approvalId);
+        // 승인과 같이 잠금 이후 서버 시각으로 판단한다.
+        LocalDateTime processedAt = LocalDateTime.now(clock);
         ApprovalLine currentLine = findCurrentApprovalLine(approval);
 
-        validateCurrentApprover(currentLine, actor);
+        validateCurrentProcessor(approval, currentLine, actor, processedAt.toLocalDate());
         String comment = normalizeDecisionComment(request, true);
-        LocalDateTime processedAt = LocalDateTime.now();
 
         attendanceCorrections.onDecision(approval, actor, false);
         leaveRequests.onDecision(approval, actor, false);
         leaveCancellations.onDecision(approval, actor, false);
-        currentLine.reject(comment, processedAt);
+        currentLine.reject(actor, comment, processedAt);
         approval.reject(processedAt);
         saveDecisionHistory(approval, currentLine, actor, ApprovalActionType.REJECTED, comment);
         notificationWorkflow.onRejected(approval);
@@ -248,8 +251,8 @@ public class ApprovalService {
         Approval approval = findApprovalForDecision(approvalId);
 
         validateCancellation(approval, actor);
-        LocalDateTime canceledAt = LocalDateTime.now();
-        User currentApprover = findCurrentApprovalLine(approval).getApprover();
+        LocalDateTime canceledAt = LocalDateTime.now(clock);
+        ApprovalLine currentLine = findCurrentApprovalLine(approval);
 
         attendanceCorrections.onCancel(approvalId);
         leaveCancellations.onCancel(approvalId);
@@ -261,7 +264,7 @@ public class ApprovalService {
                 ApprovalActionType.CANCELED,
                 null
         ));
-        notificationWorkflow.onCanceled(approval, currentApprover);
+        notificationWorkflow.onCanceled(approval, currentLine);
     }
 
     @Transactional
@@ -280,17 +283,20 @@ public class ApprovalService {
         }
 
         Approval approval = findApprovalForDecision(approvalId);
+        LocalDateTime terminatedAt = LocalDateTime.now(clock);
         ApprovalLine currentLine = findCurrentApprovalLine(approval);
         if (!currentLine.isPending()) {
             throw new BusinessException(ErrorCode.APPROVAL_LINE_NOT_PROCESSABLE);
         }
-        if (currentLine.getApprover().getStatus() == UserStatus.ACTIVE) {
+        // 원 결재자가 비활성이어도 유효한 대결자가 있으면 문서를 계속 처리할 수 있으므로 종료하지 않는다.
+        User currentProcessor = delegationService.resolveProcessor(approval, currentLine, terminatedAt.toLocalDate());
+        if (currentProcessor.getStatus() == UserStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.APPROVAL_TERMINATE_NOT_ALLOWED);
         }
 
         attendanceCorrections.onCancel(approvalId);
         leaveCancellations.onCancel(approvalId);
-        approval.terminate(LocalDateTime.now());
+        approval.terminate(terminatedAt);
         approvalHistoryRepository.save(ApprovalHistory.create(
                 approval, actor, currentLine.getApprovalStep(), ApprovalActionType.TERMINATED, reason));
         notificationWorkflow.onTerminated(approval);
@@ -311,13 +317,13 @@ public class ApprovalService {
     public Page<ApprovalListResponse> getPendingApprovals(String loginId, String keyword, Pageable pageable) {
         User approver = findUserByLoginId(loginId);
 
-        return approvalRepository.findPendingByApproverId(approver.getUserId(), keyword, pageable);
+        return approvalRepository.findPendingByProcessorId(approver.getUserId(), today(), keyword, pageable);
     }
 
     public Page<ApprovalListResponse> getProcessedApprovals(String loginId, String keyword, ApprovalStatus status, Pageable pageable) {
         User approver = findUserByLoginId(loginId);
 
-        return approvalRepository.findProcessedByApproverId(approver.getUserId(), keyword, status, pageable);
+        return approvalRepository.findProcessedByProcessorId(approver.getUserId(), keyword, status, pageable);
     }
 
     public Page<ApprovalListResponse> getCcApprovals(String loginId, String keyword, ApprovalStatus status, Pageable pageable) {
@@ -356,10 +362,11 @@ public class ApprovalService {
 
     public ApprovalDetailResponse getApprovalDetail(Long approvalId, String loginId) {
         User viewer = findUserByLoginId(loginId);
-        ApprovalDetailHeaderResponse header = findAccessibleDetailHeader(approvalId, viewer);
+        LocalDate today = today();
+        ApprovalDetailHeaderResponse header = findAccessibleDetailHeader(approvalId, viewer, today);
 
         List<ApprovalLineResponse> approvalLines = approvalRepository
-                .findDetailLinesByApprovalId(approvalId);
+                .findDetailLinesByApprovalId(approvalId, today);
         List<ApprovalCcResponse> ccUsers = approvalRepository
                 .findDetailCcsByApprovalId(approvalId);
         List<ApprovalHistoryResponse> histories = approvalRepository
@@ -375,13 +382,22 @@ public class ApprovalService {
                 approvalLines,
                 ccUsers,
                 histories,
-                attachments
+                attachments,
+                canDecide(header, approvalLines, viewer)
         );
+    }
+
+    // 목록과 같은 규칙으로 계산한 현재 처리자(processorId)가 조회자이면 승인·반려 버튼을 보여준다.
+    private boolean canDecide(ApprovalDetailHeaderResponse header, List<ApprovalLineResponse> lines, User viewer) {
+        return header.getApprovalStatus() == ApprovalStatus.IN_PROGRESS && lines.stream()
+                .anyMatch(line -> line.getApprovalStatus() == ApprovalLineStatus.PENDING
+                        && viewer.getUserId().equals(line.getProcessorId()));
     }
 
     private ApprovalDetailHeaderResponse findAccessibleDetailHeader(
             Long approvalId,
-            User viewer
+            User viewer,
+            LocalDate today
     ) {
         if (viewer.getUserRole() == UserRole.SUPER_ADMIN) {
             return approvalRepository
@@ -390,7 +406,7 @@ public class ApprovalService {
         }
 
         return approvalRepository
-                .findAccessibleDetailHeader(approvalId, viewer.getUserId())
+                .findAccessibleDetailHeader(approvalId, viewer.getUserId(), today)
                 .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_NOT_FOUND));
     }
 
@@ -467,8 +483,10 @@ public class ApprovalService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.APPROVAL_LINE_NOT_PROCESSABLE));
     }
 
-    private void validateCurrentApprover(ApprovalLine approvalLine, User actor) {
-        if (!approvalLine.isApprover(actor.getUserId())) {
+    // 위임 기간 중에는 대결자만, 그 밖에는 원 결재자만 처리할 수 있다.
+    private void validateCurrentProcessor(Approval approval, ApprovalLine approvalLine, User actor, LocalDate today) {
+        User processor = delegationService.resolveProcessor(approval, approvalLine, today);
+        if (!processor.getUserId().equals(actor.getUserId())) {
             throw new BusinessException(ErrorCode.APPROVAL_DECISION_FORBIDDEN);
         }
 
@@ -519,7 +537,6 @@ public class ApprovalService {
         }
 
         ApprovalLine line = nextLine.get();
-        delegationService.assignNextStep(approval, line);
         line.activate();
         approval.moveToNextStep(line.getApprovalStep());
     }
@@ -540,6 +557,10 @@ public class ApprovalService {
         );
 
         approvalHistoryRepository.save(history);
+    }
+
+    private LocalDate today() {
+        return LocalDate.now(clock);
     }
 
     private User findUserByLoginId(String loginId) {

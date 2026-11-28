@@ -84,47 +84,39 @@ public class ApprovalDelegationService {
                 .stream().map(ApprovalDelegationResponse::from).toList();
     }
 
+    /**
+     * 처리 API 기준의 실제 처리자를 정한다. 문서 행을 잠근 뒤, 잠금 이후 서버 시각으로 계산한 날짜를 넘겨야 한다.
+     * 유효한 위임(취소되지 않음, 시작일 ≤ today ≤ 종료일, 대결자 ACTIVE)이 있고 충돌이 없으면 대결자, 아니면 원 결재자다.
+     * 조회 경로의 같은 규칙은 ApprovalProcessorConditions(QueryDSL)에 있다. 두 구현은 ApprovalDelegationIntegrationTest로 맞춘다.
+     */
     @Transactional(propagation = Propagation.MANDATORY)
-    public void assignFirstStep(Approval approval, List<ApprovalLine> approvalLines, List<User> ccUsers) {
-        if (approvalLines.isEmpty()) return;
-        assign(approval, approvalLines.getFirst(), approvalLines,
-                ccUsers.stream().map(User::getUserId).toList());
+    public User resolveProcessor(Approval approval, ApprovalLine line, LocalDate today) {
+        User original = line.getApprover();
+        return activeDelegatee(original.getUserId(), today)
+                .filter(delegatee -> !conflictsWithParticipants(approval, line, delegatee))
+                .orElse(original);
     }
 
-    @Transactional(propagation = Propagation.MANDATORY)
-    public void assignNextStep(Approval approval, ApprovalLine nextLine) {
-        Optional<User> delegatee = activeDelegate(nextLine.getApprover().getUserId());
-        if (delegatee.isEmpty()) return;
-        List<ApprovalLine> allLines = lines.findAllByApproval_ApprovalIdOrderByApprovalStepAsc(approval.getApprovalId());
-        List<Long> ccIds = ccs.findByApproval_ApprovalId(approval.getApprovalId()).stream()
-                .map(cc -> cc.getCcUser().getUserId()).toList();
-        assignIfNoConflict(approval, nextLine, allLines, ccIds, delegatee.get());
-    }
-
-    private void assign(Approval approval, ApprovalLine target, List<ApprovalLine> allLines, List<Long> ccIds) {
-        activeDelegate(target.getApprover().getUserId())
-                .ifPresent(delegatee -> assignIfNoConflict(approval, target, allLines, ccIds, delegatee));
-    }
-
-    private void assignIfNoConflict(Approval approval, ApprovalLine target, List<ApprovalLine> allLines,
-                                    List<Long> ccIds, User delegatee) {
+    // 대결자가 이 문서의 다른 역할을 이미 맡고 있으면 한 사람이 두 번 판단하게 되므로 원 결재자가 처리한다.
+    private boolean conflictsWithParticipants(Approval approval, ApprovalLine target, User delegatee) {
         Long delegateeId = delegatee.getUserId();
-        if (approval.getDocumentType().getBehaviorType() == DocumentBehaviorType.ATTENDANCE_CORRECTION
+        if (approval.getDocumentType() != null
+                && approval.getDocumentType().getBehaviorType() == DocumentBehaviorType.ATTENDANCE_CORRECTION
                 && delegatee.getUserRole() != UserRole.HR_MANAGER
-                && delegatee.getUserRole() != UserRole.SUPER_ADMIN) return;
-        if (Objects.equals(approval.getWriter().getUserId(), delegateeId) || ccIds.contains(delegateeId)
-                || allLines.stream().anyMatch(line -> line != target &&
-                (Objects.equals(line.getApprover().getUserId(), delegateeId)
-                        || (line.getOriginalApprover() != null
-                        && Objects.equals(line.getOriginalApprover().getUserId(), delegateeId))))) return;
-        target.assignDelegate(delegatee);
+                && delegatee.getUserRole() != UserRole.SUPER_ADMIN) return true;
+        if (Objects.equals(approval.getWriter().getUserId(), delegateeId)) return true;
+        boolean isCc = ccs.findByApproval_ApprovalId(approval.getApprovalId()).stream()
+                .anyMatch(cc -> Objects.equals(cc.getCcUser().getUserId(), delegateeId));
+        if (isCc) return true;
+        return lines.findAllByApproval_ApprovalIdOrderByApprovalStepAsc(approval.getApprovalId()).stream()
+                .filter(line -> !Objects.equals(line.getApprovalLineId(), target.getApprovalLineId()))
+                .anyMatch(line -> Objects.equals(line.getApprover().getUserId(), delegateeId)
+                        || (line.getProcessedBy() != null
+                        && Objects.equals(line.getProcessedBy().getUserId(), delegateeId)));
     }
 
-    private Optional<User> activeDelegate(Long delegatorId) {
-        LocalDate today = LocalDate.now(clock);
-        List<ApprovalDelegation> active = delegations
-                .findByDelegator_UserIdAndCanceledAtIsNullAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
-                        delegatorId, today, today);
+    private Optional<User> activeDelegatee(Long delegatorId, LocalDate today) {
+        List<ApprovalDelegation> active = delegations.findActiveForUpdate(delegatorId, today);
         if (active.size() > 1) throw new BusinessException(ErrorCode.DELEGATION_OVERLAP);
         if (active.isEmpty() || active.getFirst().getDelegatee().getStatus() != UserStatus.ACTIVE) {
             return Optional.empty();

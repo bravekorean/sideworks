@@ -866,6 +866,25 @@
   text-align: center;
 }
 
+/* 대결 표시: 대결로 받은 문서·대결 처리 이력, 대결이 막혀 원 결재자에게 남은 문서 */
+.delegation-note {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(139, 92, 246, 0.28);
+  background: rgba(139, 92, 246, 0.12);
+  color: #b9a4ff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.delegation-note--blocked {
+  border-color: rgba(233, 169, 74, 0.24);
+  background: rgba(233, 169, 74, 0.09);
+  color: #e7b563;
+}
+
 .status-chip--pending {
   border: 1px solid rgba(233, 169, 74, 0.24);
   background: rgba(233, 169, 74, 0.09);

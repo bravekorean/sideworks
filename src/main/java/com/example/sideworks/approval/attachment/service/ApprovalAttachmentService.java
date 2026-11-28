@@ -20,6 +20,8 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -34,6 +36,7 @@ public class ApprovalAttachmentService {
     private final FileStorage fileStorage;
     private final AttachmentFileValidator fileValidator;
     private final AttachmentProperties properties;
+    private final Clock clock;
 
     @Transactional
     public List<ApprovalAttachmentResponse> upload(Long approvalId, String loginId, List<MultipartFile> files) {
@@ -107,7 +110,8 @@ public class ApprovalAttachmentService {
 
         boolean directlyAccessible = approval.isWriter(viewer.getUserId())
                 || viewer.getUserRole() == UserRole.SUPER_ADMIN;
-        if (!directlyAccessible && approvalRepository.findAccessibleDetailHeader(approvalId, viewer.getUserId()).isEmpty()) {
+        if (!directlyAccessible && approvalRepository
+                .findAccessibleDetailHeader(approvalId, viewer.getUserId(), LocalDate.now(clock)).isEmpty()) {
             throw new BusinessException(ErrorCode.APPROVAL_NOT_FOUND);
         }
     }

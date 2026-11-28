@@ -40,8 +40,8 @@ class ProcessedApprovalIndexIntegrationTest {
     private static final int SAMPLES = 30;
     private static final String STATUS_INDEX = "bench_processed_status_first";
     private static final String TIME_INDEX = "bench_processed_time_first";
-    private static final String STATUS_COLUMNS = "approver_id, approval_status, processed_at DESC, approval_line_id DESC, approval_id";
-    private static final String TIME_COLUMNS = "approver_id, processed_at DESC, approval_line_id DESC, approval_status, approval_id";
+    private static final String STATUS_COLUMNS = "processed_by_id, approval_status, processed_at DESC, approval_line_id DESC, approval_id";
+    private static final String TIME_COLUMNS = "processed_by_id, processed_at DESC, approval_line_id DESC, approval_status, approval_id";
     private static final String PROJECTION = """
             select a.approval_id, a.title, u.user_id, u.user_name, a.approval_status,
                    a.current_step, a.created_at, a.submitted_at, a.completed_at
@@ -49,7 +49,7 @@ class ProcessedApprovalIndexIntegrationTest {
     private static final String BODY = """
             join approvaltbl a on a.approval_id=l.approval_id
             join usertbl u on u.user_id=a.writer_id
-            where l.approver_id=? and l.approval_status in ('APPROVED','REJECTED')
+            where l.processed_by_id=? and l.approval_status in ('APPROVED','REJECTED')
             """;
     private static final String ORDER = " order by l.processed_at desc,l.approval_line_id desc limit ? offset ?";
 
@@ -121,6 +121,7 @@ class ProcessedApprovalIndexIntegrationTest {
             jdbc.update("""
                     update approval_linetbl l join approvaltbl a on a.approval_id=l.approval_id
                     set l.processed_at=timestampadd(second,floor(l.approval_id/10),'2026-01-01 00:00:00'),
+                        l.processed_by_id=l.approver_id,
                         l.approval_status=if(mod(l.approval_line_id,3)=0,'REJECTED','APPROVED'),
                         a.approval_status=if(mod(l.approval_line_id,3)=0,'REJECTED','APPROVED')
                     where l.approval_status='APPROVED'
@@ -130,16 +131,17 @@ class ProcessedApprovalIndexIntegrationTest {
         jdbc.queryForList("analyze table approvaltbl, usertbl");
     }
 
-    // The entity now declares the time-first index. Recreate the earlier schema so the
-    // baseline keeps measuring the approver FK index alone; the FK needs an index before the drop.
+    // The processed inbox is keyed by the actual processor (processed_by_id) since period delegation
+    // keeps approver_id as the original approver. The entity declares the time-first processor index;
+    // recreate the FK-index-only schema so the baseline measures it alone (the FK needs an index before the drop).
     private void restorePreIndexBaseline() {
-        jdbc.execute("create index bench_baseline_approver on approval_linetbl (approver_id)");
-        jdbc.execute("drop index idx_approval_linetbl_approver_processed on approval_linetbl");
+        jdbc.execute("create index bench_baseline_processor on approval_linetbl (processed_by_id)");
+        jdbc.execute("drop index idx_approval_linetbl_processor_processed on approval_linetbl");
     }
 
     private void verifyRepository(Variant variant, long user, int page, ApprovalStatus status) {
         int offset = page * PAGE_SIZE;
-        var expected = approvals.findProcessedByApproverId(user, null, status, PageRequest.of(page, PAGE_SIZE));
+        var expected = approvals.findProcessedByProcessorId(user, null, status, PageRequest.of(page, PAGE_SIZE));
         var rows = list(variant, user, offset, status);
         assertThat(rows).isEqualTo(list(Variant.BASELINE, user, offset, status));
         assertThat(rows.stream().map(row -> ((Number) row.get("approval_id")).longValue()).toList())
