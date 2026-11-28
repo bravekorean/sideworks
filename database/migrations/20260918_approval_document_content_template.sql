@@ -1,0 +1,4 @@
+-- 사용하지 않는 이전 초안 파일.
+-- content_template 컬럼과 품의서 초기 문구는
+-- 20260918_approval_document_type.sql의 마스터 생성 SQL에 통합했다.
+-- 중복 ALTER를 피하기 위해 이 파일은 실행하지 않는다.

@@ -163,6 +163,10 @@ erDiagram
 - `approvaltbl.document_type`과 `document_type_id`는 기존 문자열 방식에서 문서 종류 마스터로 전환한 과도기 중복입니다. 무리하게 삭제하지 않고 데이터 이관·호환성을 확인한 뒤 정리할 대상입니다.
 - 결재선·연차 잔액 등 수정 경쟁이 가능한 데이터에는 버전 또는 행 잠금을 사용합니다. 이력은 기존 행 수정 대신 새 행을 추가합니다.
 
+## DB 스키마 변경 적용
+
+운영 DB는 `ddl-auto=validate`로 실행하므로 인덱스와 스키마 변경을 Hibernate가 만들지 않습니다. 배포 전에 [마이그레이션 SQL](database/migrations)을 파일명 날짜 순서대로 직접 적용합니다. 순서와 확인 쿼리는 [적용 절차](database/migrations/README.md)에 있습니다.
+
 ## 트러블슈팅
 
 ### 만료된 Access Token 때문에 동시 API 요청이 실패
