@@ -1,5 +1,6 @@
 package com.example.sideworks.common.logging;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -30,6 +31,8 @@ class HttpRequestLoggingFilterTest {
 
     private Logger httpLogger;
     private Logger auditLogger;
+    private Level previousHttpLevel;
+    private Level previousAuditLevel;
     private ListAppender<ILoggingEvent> httpListAppender;
     private ListAppender<ILoggingEvent> auditListAppender;
     private MockMvc mockMvc;
@@ -38,6 +41,10 @@ class HttpRequestLoggingFilterTest {
     void setUp() {
         httpLogger = (Logger) LoggerFactory.getLogger("HTTP");
         auditLogger = (Logger) LoggerFactory.getLogger("AUDIT");
+        previousHttpLevel = httpLogger.getLevel();
+        previousAuditLevel = auditLogger.getLevel();
+        httpLogger.setLevel(Level.INFO);
+        auditLogger.setLevel(Level.INFO);
 
         httpListAppender = createAndAttachListAppender(httpLogger);
         auditListAppender = createAndAttachListAppender(auditLogger);
@@ -55,6 +62,8 @@ class HttpRequestLoggingFilterTest {
         auditLogger.detachAppender(auditListAppender);
         httpListAppender.stop();
         auditListAppender.stop();
+        httpLogger.setLevel(previousHttpLevel);
+        auditLogger.setLevel(previousAuditLevel);
         MDC.remove("requestId");
     }
 
