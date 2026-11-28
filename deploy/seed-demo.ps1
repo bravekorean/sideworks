@@ -14,13 +14,14 @@ try {
         if ($LASTEXITCODE -ne 0 -or !$hash.Success) {
             throw "Could not hash the demo password for $account."
         }
-        "('$account', '$($hash.Groups[1].Value)', '$account', '$account', 'USER', 'ACTIVE', NOW(6), NOW(6))"
+        "('$account', '$($hash.Groups[1].Value)', '$account', '$account', '2020-01-01', 'USER', 'ACTIVE', NOW(6), NOW(6))"
     }
 
     $sql = @"
-INSERT INTO usertbl (login_id, user_pass, user_name, employee_no, user_role, status, created_at, updated_at)
-VALUES $($accountRows -join ",`n")
-ON DUPLICATE KEY UPDATE user_id = usertbl.user_id;
+INSERT INTO usertbl (login_id, user_pass, user_name, employee_no, hire_date, user_role, status, created_at, updated_at)
+VALUES $($accountRows -join ",`n") AS demo
+ON DUPLICATE KEY UPDATE hire_date = IF(usertbl.login_id = demo.login_id AND usertbl.hire_date IS NULL,
+                                      demo.hire_date, usertbl.hire_date);
 "@
     $sql | docker compose exec -T db sh -c 'test "$MYSQL_DATABASE" = sideworks_demo && MYSQL_PWD="$MYSQL_PASSWORD" mysql -u "$MYSQL_USER" "$MYSQL_DATABASE"'
     if ($LASTEXITCODE -ne 0) { throw 'Could not insert demo accounts.' }

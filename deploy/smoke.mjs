@@ -66,9 +66,50 @@ async function verifySaved(id, writer, approver, delegate) {
   assert.match(await (await request(`/approvals/${id}`)).text(), /<div id="root">/)
 }
 
+async function verifyLeave(writer, approver) {
+  const types = await (await request('/api/approval-document-types', { user: writer })).json()
+  for (const code of ['LEAVE_REQUEST', 'LEAVE_CANCELLATION']) {
+    assert.ok(types.some(type => type.typeCode === code), `${code} is missing from the document types`)
+  }
+
+  const next = new Date(`${today}T00:00:00Z`)
+  do {
+    next.setUTCDate(next.getUTCDate() + 1)
+  } while ([0, 6].includes(next.getUTCDay()))
+  const date = next.toISOString().slice(0, 10)
+  const balancePath = `/api/annual-leave/me/balance?year=${next.getUTCFullYear()}`
+  const balance = async () => (await (await request(balancePath, { user: writer })).json()).remainingDays
+  const originalBalance = await balance()
+
+  const path = '/api/annual-leave/requests'
+  const submit = async (url, input) => {
+    const form = new FormData()
+    form.append('request', new Blob([JSON.stringify({ ...input, approverId: approver.userId })],
+      { type: 'application/json' }))
+    const { approvalId } = await (await request(url, { user: writer, method: 'POST', form })).json()
+    await request(`/api/approvals/${approvalId}/approve`, { user: approver, method: 'POST' })
+    const detail = await (await request(`/api/approvals/${approvalId}`, { user: writer })).json()
+    assert.equal(detail.approvalStatus, 'APPROVED')
+    return approvalId
+  }
+
+  const approvalId = await submit(path, { startDate: date, endDate: date, period: 'FULL', reason: 'Compose smoke test' })
+  assert.equal(await balance(), originalBalance - 1)
+  const approved = await (await request(`${path}/approved`, { user: writer })).json()
+  const leave = approved.find(item => item.startDate === date && item.endDate === date && item.period === 'FULL')
+  assert.ok(leave, 'Approved leave is missing from the cancellation list')
+  const cancellationId = await submit(`${path}/cancellations`, { leaveRequestId: leave.leaveRequestId, reason: 'Compose smoke test' })
+  assert.equal(await balance(), originalBalance)
+  const remaining = await (await request(`${path}/approved`, { user: writer })).json()
+  assert.ok(!remaining.some(item => item.leaveRequestId === leave.leaveRequestId))
+  console.log(`Verified leave approval ${approvalId}, cancellation ${cancellationId} and balance restoration.`)
+}
+
 const [writer, approver, delegate] = await Promise.all(['demo-writer', 'demo-approver', 'demo-delegate'].map(login))
 const existingId = process.argv[2]
-if (existingId !== undefined) {
+if (existingId === '--leave') {
+  await verifyLeave(writer, delegate)
+} else if (existingId !== undefined) {
   assert.match(existingId, /^[1-9][0-9]*$/)
   await verifySaved(Number(existingId), writer, approver, delegate)
   console.log(`Verified stored approval, audit, notification and attachment bytes for approval ${existingId}.`)
