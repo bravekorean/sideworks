@@ -8,6 +8,7 @@
 | 결재 처리함 인덱스 | 첫 페이지 목록 SQL p50 19.110 → 0.815ms, 결재선 접근 34,000 → 20행 | 격리 DB 검증 |
 | 최근 결재 활동 | 결재·참조 편중 사용자 p50 23.134 → 3.773ms, 참여 없음 185.465 → 5.209ms | 격리 DB 검증 |
 | 최근 활동 깊은 페이지 | 결재·참조 편중 사용자 offset 200 HTTP p50 57.4 → 40.0ms, offset 1000 80.1 → 44.6ms | 제품 코드 반영 대기(PR) |
+| 기간제 대결 대기함 조회 | 위임 없음은 이전 쿼리와 비슷(p50 3~58ms), 위임 중 사용자는 p50 118~279ms | 비용 기록(개선 아님) |
 | 휴가 첨부 저장과 사용자 잠금 | 첨부 저장 지연 300ms에서 같은 직원의 잔액 조회 서비스 호출 p50 323~328 → 5ms | 제품 코드 반영(2026-11-28) |
 
 ## 대시보드에서 쓰지 않는 조회 제거
@@ -87,6 +88,24 @@
 
 결과 일치는 접근 조건을 그대로 쓴 기준 SQL과 모든 페이지를 비교하는 통합 테스트로 확인한다(편중 결재자·작성자·참조자·대결 처리자·무참여, 같은 생성 시각 다수, 다른 사람의 임시저장 문서, 마지막 페이지와 그 다음 페이지, 최대 ID 간격으로 상한을 넘는 경우). 한계: 합성 데이터의 생성 시각 분포가 실제와 다르고, 활동 비율이 중간인 사용자는 합성 데이터에 없어 상한 근처의 비용은 측정하지 않았다. [요청 측정 테스트](src/test/java/com/example/sideworks/ActivityDeepPageBenchmarkIntegrationTest.java) · [결과 일치 테스트](src/test/java/com/example/sideworks/RecentActivityDeepPageIntegrationTest.java)
 
+## 기간제 대결 규칙의 대기함 조회 비용
+
+대결자를 결재선에 저장하지 않고 조회·처리 시점의 위임 기간으로 계산하도록 바꾸면서, 결재 대기함 쿼리가 위임 테이블 조건을 함께 평가하게 됐다. 이 사례는 개선이 아니라 설계 선택의 비용을 기록한 것이다.
+
+격리 MySQL 8.0.44, 문서 6만 건(대기 단계 2만 건), 첫 페이지 4건과 전체 건수를 읽기 전용 트랜잭션 1회로 묶어 워밍업 10회 후 50회 측정했다. 2026-11-28 main(`9b0eba2`)에서 2회 실행했으며 표는 p50(1회차 · 2회차)이다.
+
+| 사용자 조건 | 대기 건수 | 이전 쿼리(approver_id만) | 현재(대결 규칙) |
+| --- | ---: | ---: | ---: |
+| 위임 없음, 대기 많음 | 17,000 | 48.03 · 57.38ms | 47.72 · 58.10ms |
+| 위임 없음, 대기 중간 | 3,000 | 16.42 · 16.68ms | 17.59 · 17.54ms |
+| 위임 없음, 대기 없음 | 0 | 3.30 · 2.89ms | 3.70 · 3.85ms |
+| 위임 중, 원 결재자 | 123 | — | 276.81 · 279.13ms |
+| 위임 중, 대결자 | 16,877 | — | 240.77 · 215.35ms |
+| 다른 위임 중, 원 결재자 | 0 | — | 117.83 · 165.34ms |
+| 다른 위임 중, 대결자 | 3,000 | — | 132.08 · 159.48ms |
+
+위임이 없는 사용자는 결과가 이전 쿼리와 같은 것을 테스트가 확인하며, 지연도 두 실행 모두 비슷했다. SQL은 호출당 2개에서 3개로 늘었다. 위임 기간에 걸린 네 시나리오(원 결재자·대결자)의 p50은 두 실행 전체에서 118~279ms였다. 이 중 대기 0건인 원 결재자도 p50 117.83ms·165.34ms로, 반환할 문서가 없어도 비용이 생긴다. 원인 분석과 인덱스·쿼리 개선은 아직 하지 않았다. 테스트 데이터에는 위임 2건을 넣었을 뿐이며, 실제로 위임이 걸리는 사용자 비율은 배포 데이터로 확인한 뒤 개선 여부를 정한다. 후속 조사는 대기 0건인 원 결재자부터 실행계획에서 목록 조회와 전체 건수 조회의 시간을 나누고, 위임·참여자 조건이 실제로 읽는 행 수와 반복 횟수를 확인하는 순서로 한다. [측정 테스트](src/test/java/com/example/sideworks/ApprovalDelegationInboxBenchmarkIntegrationTest.java)
+
 ## 휴가 첨부 저장을 사용자 잠금 밖으로
 
 휴가·취소 신청은 트랜잭션의 첫 쿼리에서 신청자의 사용자 행을 `SELECT … FOR UPDATE`로 잠그고, 그 안에서 진행 중 신청량을 빼 가용 일수를 판단한다. 변경 전에는 첨부 파일 저장도 이 잠금 안에서 실행되어, 저장 시간만큼 같은 직원의 잔액 조회(`ensureBalance`도 같은 행을 잠근다)와 다른 신청이 기다렸다.
@@ -117,6 +136,9 @@ $env:SIDEWORKS_PROCESSED_INDEX_BENCHMARK='true'
 
 $env:SIDEWORKS_APPROVAL_PLAN_BENCHMARK='true'
 ./gradlew.bat test --rerun --tests '*ApprovalActivityPlanIntegrationTest' --tests '*ActivityDeepPageBenchmarkIntegrationTest'
+
+$env:SIDEWORKS_DELEGATION_BENCHMARK='true'
+./gradlew.bat test --rerun --tests '*ApprovalDelegationInboxBenchmarkIntegrationTest'
 
 $env:SIDEWORKS_LOCK_HOLD_BENCHMARK='true'
 ./gradlew.bat test --rerun --tests '*LeaveAttachmentLockHoldBenchmarkTest'

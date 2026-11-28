@@ -2,6 +2,8 @@
 
 애플리케이션은 `spring.jpa.hibernate.ddl-auto=validate`로 실행합니다. Hibernate는 테이블과 컬럼만 검증하고 인덱스는 만들지 않습니다. 따라서 이 폴더의 SQL은 배포 전에 사람이 직접 적용합니다.
 
+이 폴더의 SQL은 기존 스키마에 적용하는 변경 이력입니다. 첫 파일부터 `usertbl`이 필요합니다. 빈 노트북 데모 DB는 [Compose 초기화 절차](../../docs/laptop-compose.md)에서 설명하는 `database/bootstrap` SQL로 시작합니다.
+
 ## 적용 순서
 
 1. 대상 DB를 백업합니다. 운영 DB라면 쓰기가 적은 시간대를 고릅니다.

@@ -26,16 +26,20 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -95,7 +99,8 @@ class ApprovalServiceDecisionTest {
                 org.mockito.Mockito.mock(com.example.sideworks.notification.service.ApprovalNotificationWorkflow.class),
                 org.mockito.Mockito.mock(ApprovalTemplateService.class),
                 delegationService,
-                java.time.Clock.fixed(java.time.Instant.parse("2026-11-28T01:00:00Z"), java.time.ZoneId.of("Asia/Seoul"))
+                java.time.Clock.fixed(java.time.Instant.parse("2026-11-28T01:00:00Z"), java.time.ZoneId.of("Asia/Seoul")),
+                org.springframework.transaction.support.TransactionOperations.withoutTransaction()
         );
         // 기본은 위임이 없는 상태: 원 결재자가 처리자다.
         org.mockito.Mockito.lenient().when(delegationService.resolveProcessor(
@@ -192,10 +197,8 @@ class ApprovalServiceDecisionTest {
 
     @Test
     void 진행_중이_아닌_문서는_처리할_수_없다() {
-        User actor = mock(User.class);
         Approval approval = inProgressApproval();
         ReflectionTestUtils.setField(approval, "approvalStatus", ApprovalStatus.APPROVED);
-        when(userRepository.findByLoginId(LOGIN_ID)).thenReturn(Optional.of(actor));
         when(approvalRepository.findByIdForUpdate(APPROVAL_ID)).thenReturn(Optional.of(approval));
 
         assertThatThrownBy(() -> approvalService.approveApproval(APPROVAL_ID, LOGIN_ID, null))
@@ -337,6 +340,56 @@ class ApprovalServiceDecisionTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.APPROVAL_TERMINATE_REASON_REQUIRED);
         verify(approvalRepository, never()).findByIdForUpdate(APPROVAL_ID);
+    }
+
+    // REPEATABLE READ 스냅샷은 첫 일반 SELECT에서 고정되므로 문서 잠금이 첫 SQL이어야 한다.
+    // 실제 MySQL 경합 재현은 LockContentionIntegrationTest가 담당한다.
+    @Test
+    void 승인_반려_회수는_사용자_조회보다_문서_잠금을_먼저_얻는다() {
+        List<Runnable> requests = List.of(
+                () -> approvalService.approveApproval(APPROVAL_ID, LOGIN_ID, null),
+                () -> approvalService.rejectApproval(APPROVAL_ID, LOGIN_ID, request("사유")),
+                () -> approvalService.cancelApproval(APPROVAL_ID, LOGIN_ID));
+
+        for (Runnable request : requests) {
+            // 문서가 없으면 잠금 직후 끝나므로, 사용자 조회가 한 번도 없어야 잠금이 먼저다.
+            assertThatThrownBy(request::run)
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode").isEqualTo(ErrorCode.APPROVAL_NOT_FOUND);
+        }
+        verify(approvalRepository, times(3)).findByIdForUpdate(APPROVAL_ID);
+        verifyNoInteractions(userRepository);
+    }
+
+    // 처리 API의 오류 우선순위: 문서 잠금이 먼저이므로 사용자와 문서가 함께 실패하면 문서 오류가 나간다.
+    // 인증된 요청의 사용자가 없는 경우는 토큰 발급 뒤 계정이 사라진 경우뿐이라 이 순서를 계약으로 둔다.
+    @Test
+    void 사용자와_문서가_모두_처리_불가하면_문서_오류가_먼저다() {
+        Approval approved = inProgressApproval();
+        ReflectionTestUtils.setField(approved, "approvalStatus", ApprovalStatus.APPROVED);
+        when(approvalRepository.findByIdForUpdate(APPROVAL_ID)).thenReturn(Optional.of(approved));
+
+        assertThatThrownBy(() -> approvalService.approveApproval(APPROVAL_ID, "missing-user", null))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.APPROVAL_NOT_IN_PROGRESS);
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void 강제_종료는_권한을_확인한_뒤_문서를_잠근다() {
+        User admin = mock(User.class);
+        when(admin.getUserRole()).thenReturn(UserRole.SUPER_ADMIN);
+        when(userRepository.findByLoginId(LOGIN_ID)).thenReturn(Optional.of(admin));
+
+        assertThatThrownBy(() -> approvalService.terminateApproval(APPROVAL_ID, LOGIN_ID,
+                new ApprovalTerminateRequest("사유")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.APPROVAL_NOT_FOUND);
+        // 사전 검사의 사용자 조회는 업무 트랜잭션 밖이고, 업무 트랜잭션은 잠금으로 시작한다.
+        InOrder order = inOrder(userRepository, approvalRepository);
+        order.verify(userRepository).findByLoginId(LOGIN_ID);
+        order.verify(approvalRepository).findByIdForUpdate(APPROVAL_ID);
+        verify(userRepository, times(1)).findByLoginId(LOGIN_ID);
     }
 
     private void prepareDecision(User actor, Approval approval, ApprovalLine currentLine) {
