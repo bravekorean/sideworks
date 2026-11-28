@@ -58,10 +58,19 @@ MySQL의 결재 이력·알림·첨부 메타데이터는 `mysql-data`에, 첨�
 실행하려는 태그의 체크아웃에서 다음 명령을 실행합니다. `SIDEWORKS_IMAGE_TAG`에는 실제로 발행된 태그를 지정합니다.
 
 ```powershell
-$env:SIDEWORKS_IMAGE_TAG = 'v1.0.0-rc.1'
-docker compose -f compose.yml -f compose.ghcr.yml pull backend frontend
+$env:SIDEWORKS_IMAGE_TAG = 'v0.0.1-rc.laptop.1'
+docker compose -f compose.yml -f compose.ghcr.yml pull
 docker compose -f compose.yml -f compose.ghcr.yml up -d --no-build --pull never --wait
 docker compose -f compose.yml -f compose.ghcr.yml images
 ```
 
 두 Compose 파일을 함께 사용하면 기존 데모 DB·첨부파일 볼륨에 연결됩니다. 이전 로컬 검증과 동일한 결재가 있는지 확인하려면 `node deploy/smoke.mjs 1`을 실행합니다. 새 볼륨에서 실행하는 경우 먼저 데모 계정을 추가한 뒤 `node deploy/smoke.mjs`로 새 결재를 생성합니다.
+
+### 발행 이미지 검증 결과
+
+`v0.0.1-rc.laptop.1`의 두 이미지를 계정 로그인 없이 내려받고, Compose에서 실행 중인 이미지 ID가 다운로드한 이미지와 일치하는지 확인했습니다. 세 서비스가 `healthy` 상태였고, 결재 `1`의 데이터와 첨부파일을 다시 읽었습니다. 같은 이미지에서 결재 `2`를 새로 만들어 대결 승인과 SSE 완료 알림까지 재검증했습니다. [GitHub Actions 발행 실행](https://github.com/bravekorean/sideworks/actions/runs/46146860217)
+
+| 이미지 | GHCR 다이제스트 |
+| --- | --- |
+| `ghcr.io/bravekorean/sideworks-backend` | `sha256:161a6f1e7bd15ed311663c99c5f8b9c11ce36977af863d427b04879b7b987292` |
+| `ghcr.io/bravekorean/sideworks-frontend` | `sha256:70bf0382f153c4707ee72f2ae96310975f2d05a499f9777c41cb6b3e99cfcaac` |
