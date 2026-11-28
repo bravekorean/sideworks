@@ -71,6 +71,9 @@ class ApprovalServiceDecisionTest {
     @Mock
     private com.example.sideworks.leave.service.LeaveCancellationService leaveCancellations;
 
+    @Mock
+    private ApprovalDelegationService delegationService;
+
     private ApprovalService approvalService;
 
     @BeforeEach
@@ -91,8 +94,13 @@ class ApprovalServiceDecisionTest {
                 org.mockito.Mockito.mock(ApprovalDocumentTypeService.class),
                 org.mockito.Mockito.mock(com.example.sideworks.notification.service.ApprovalNotificationWorkflow.class),
                 org.mockito.Mockito.mock(ApprovalTemplateService.class),
-                org.mockito.Mockito.mock(ApprovalDelegationService.class)
+                delegationService,
+                java.time.Clock.fixed(java.time.Instant.parse("2026-11-28T01:00:00Z"), java.time.ZoneId.of("Asia/Seoul"))
         );
+        // 기본은 위임이 없는 상태: 원 결재자가 처리자다.
+        org.mockito.Mockito.lenient().when(delegationService.resolveProcessor(
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> ((ApprovalLine) invocation.getArgument(1)).getApprover());
     }
 
     @Test

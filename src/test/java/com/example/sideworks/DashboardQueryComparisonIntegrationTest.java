@@ -240,7 +240,7 @@ class DashboardQueryComparisonIntegrationTest {
 
     private Map<String, Supplier<?>> queries(long userId, boolean optimized) {
         Map<String, Supplier<?>> queries = new LinkedHashMap<>();
-        queries.put("pending", () -> approvals.findPendingByApproverId(userId, null, PageRequest.of(0, 4)));
+        queries.put("pending", () -> approvals.findPendingByProcessorId(userId, java.time.LocalDate.now(), null, PageRequest.of(0, 4)));
         if (optimized) {
             queries.put("sent", () -> approvals.countInProgressByWriterId(userId));
             queries.put("drafts", () -> approvals.countDraftsByWriterId(userId));
@@ -323,8 +323,11 @@ class DashboardQueryComparisonIntegrationTest {
 
     private long expectedSql(String variant, String query) {
         // The paged activity API now shares the probe path and adds one count statement.
-        if (query.equals("sequential-bundle")) return variant.equals("baseline") ? 9 + optimizedActivitySql : 5 + optimizedActivitySql;
+        if (query.equals("sequential-bundle")) {
+            return (variant.equals("baseline") ? 10 : 6) + optimizedActivitySql;
+        }
         if (query.equals("activities")) return variant.equals("baseline") ? optimizedActivitySql + 1 : optimizedActivitySql;
-        return variant.equals("baseline") || query.equals("pending") ? 2 : 1;
+        if (query.equals("pending")) return 3; // delegate lookup, list, count
+        return variant.equals("baseline") ? 2 : 1;
     }
 }

@@ -111,7 +111,7 @@ class DashboardBaselineIntegrationTest {
 
     private Map<String, Supplier<?>> queries(long userId) {
         Map<String, Supplier<?>> queries = new LinkedHashMap<>();
-        queries.put("pending", () -> approvals.findPendingByApproverId(userId, null, PageRequest.of(0, 4)));
+        queries.put("pending", () -> approvals.findPendingByProcessorId(userId, java.time.LocalDate.now(), null, PageRequest.of(0, 4)));
         queries.put("sent", () -> approvals.findSentByWriterId(userId, null, ApprovalStatus.IN_PROGRESS, PageRequest.of(0, 1)));
         queries.put("drafts", () -> approvals.findDraftsByWriterId(userId, null, PageRequest.of(0, 1)));
         queries.put("cc", () -> approvals.findCcByUserId(userId, null, null, PageRequest.of(0, 1)));
@@ -139,7 +139,12 @@ class DashboardBaselineIntegrationTest {
                 transaction.execute(ignored -> entry.getValue().get());
                 long elapsed = System.nanoTime() - start;
                 long count = statistics.getPrepareStatementCount() - before;
-                assertThat(count).as("SQL count: %s", entry.getKey()).isEqualTo(2);
+                var sqlCount = assertThat(count).as("SQL count: %s", entry.getKey());
+                switch (entry.getKey()) {
+                    case "pending" -> sqlCount.isEqualTo(3L); // delegate lookup, list, count
+                    case "activities" -> sqlCount.isBetween(3L, 4L); // probe, list, count, optional fallback
+                    default -> sqlCount.isEqualTo(2L);
+                }
                 samples.get(entry.getKey())[i] = elapsed;
                 statementCounts.put(entry.getKey(), count);
                 bundleNanos += elapsed;
@@ -149,7 +154,7 @@ class DashboardBaselineIntegrationTest {
             bundleSamples[i] = bundleNanos;
         }
         samples.put("sequential-bundle", bundleSamples);
-        statementCounts.put("sequential-bundle", 10L);
+        statementCounts.put("sequential-bundle", statementCounts.values().stream().mapToLong(Long::longValue).sum());
         samples.forEach((name, values) -> {
             long[] sorted = values.clone();
             Arrays.sort(sorted);
@@ -162,7 +167,7 @@ class DashboardBaselineIntegrationTest {
     }
 
     private void verifyResponses(long userId) {
-        var pending = approvals.findPendingByApproverId(userId, null, PageRequest.of(0, 4));
+        var pending = approvals.findPendingByProcessorId(userId, java.time.LocalDate.now(), null, PageRequest.of(0, 4));
         assertThat(pending.getTotalElements()).isEqualTo(jdbc.queryForObject("""
                 select count(*) from approval_linetbl l join approvaltbl a using (approval_id)
                 where l.approver_id=? and l.approval_status='PENDING' and a.approval_status='IN_PROGRESS'

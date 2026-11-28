@@ -53,7 +53,7 @@ class LeaveRequestMultiStepTest {
         Clock clock = Clock.fixed(Instant.parse("2026-09-24T00:00:00Z"), ZoneId.of("Asia/Seoul"));
         LeaveRequestService service = new LeaveRequestService(users, balanceService, balances, histories,
                 requests, days, policy, approvals, lines, ccs, approvalHistories,
-                new ApprovalSubmissionFactory(org.mockito.Mockito.mock(com.example.sideworks.approval.service.ApprovalDelegationService.class)), validator, documentTypes, attachments, clock, notifications, templates);
+                new ApprovalSubmissionFactory(), validator, documentTypes, attachments, clock, notifications, templates);
 
         User writer = user(1L);
         when(writer.getLoginId()).thenReturn("writer");
@@ -95,7 +95,8 @@ class LeaveRequestMultiStepTest {
                     && approvalLines.get(1).getApprovalStatus() == ApprovalLineStatus.WAITING;
         }));
         verify(ccs).saveAll(any());
-        verify(notifications).onSubmitted(any(Approval.class), eq(first), eq(List.of(reference)));
+        verify(notifications).onSubmitted(any(Approval.class),
+                argThat(line -> line.getApprover() == first), eq(List.of(reference)));
         verify(templates, never()).validateSubmission(anyString(), anyLong(), anyLong());
     }
 

@@ -127,7 +127,8 @@ class ApprovalControllerTest {
                 List.of(),
                 List.of(),
                 List.of(),
-                List.of()
+                List.of(),
+                false
         );
 
         when(approvalService.getApprovalDetail(approvalId, "viewer"))

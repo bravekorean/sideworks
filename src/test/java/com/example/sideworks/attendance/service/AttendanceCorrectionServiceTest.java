@@ -153,7 +153,7 @@ class AttendanceCorrectionServiceTest {
                 6L, "ATTENDANCE_CORRECTION", com.example.sideworks.approval.entity.DocumentBehaviorType.ATTENDANCE_CORRECTION, true);
         when(documentTypes.requireAttendanceCorrection()).thenReturn(type);
         Approval draft = Approval.createDraft(employee, "출근 기록 정정", "내용", type);
-        lenient().when(submissionFactory.createLines(any(), any(), any())).thenReturn(List.of(
+        lenient().when(submissionFactory.createLines(any(), any())).thenReturn(List.of(
                 com.example.sideworks.approval.entity.ApprovalLine.create(draft, hr, 1,
                         com.example.sideworks.approval.entity.ApprovalLineStatus.PENDING)));
         ReflectionTestUtils.setField(draft, "approvalId", 30L);

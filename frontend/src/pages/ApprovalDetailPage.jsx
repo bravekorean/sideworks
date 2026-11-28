@@ -197,9 +197,8 @@ function ApprovalDetailPage() {
   const currentPendingLine = approval.approvalLines.find(
     (line) => line.approvalStatus === 'PENDING',
   )
-  const canDecide =
-    approval.approvalStatus === 'IN_PROGRESS' &&
-    currentPendingLine?.approverId === currentUserId
+  // 대결 기간을 반영한 서버 판단을 그대로 쓴다. 처리 API도 같은 규칙으로 다시 확인한다.
+  const canDecide = approval.canDecide === true
   const canCancel =
     approval.approvalStatus === 'IN_PROGRESS' &&
     approval.writerId === currentUserId
@@ -207,6 +206,7 @@ function ApprovalDetailPage() {
     approval.approvalStatus === 'IN_PROGRESS' &&
     currentUserRole === 'SUPER_ADMIN' &&
     Boolean(currentPendingLine) &&
+    currentPendingLine?.delegationState !== 'DELEGATED' &&
     currentPendingLine?.approverStatus !== 'ACTIVE'
 
   const handleAttachmentDownload = async (attachment) => {
@@ -354,6 +354,9 @@ function ApprovalDetailPage() {
                     <div className="history-content">
                       <div>
                         <strong>{history.actorName}</strong>
+                        {history.onBehalfOfName && (
+                          <small className="delegation-note">{history.onBehalfOfName} 대결</small>
+                        )}
                         <span>
                           {actionTypeLabels[history.actionType] ??
                             history.actionType}
@@ -403,7 +406,17 @@ function ApprovalDetailPage() {
                     <div className="approval-step">{line.approvalStep}</div>
                     <div className="approval-line-user">
                       <strong>{line.approverName}</strong>
-                      {line.originalApproverName && <small>위임: {line.originalApproverName} → {line.approverName}</small>}
+                      {line.delegationState === 'DELEGATED' && (
+                        <small className="delegation-note">
+                          대결 {line.processorName}
+                          {line.approvalStatus === 'PENDING' ? ' (처리 예정)' : ''}
+                        </small>
+                      )}
+                      {line.delegationState === 'DELEGATION_BLOCKED' && (
+                        <small className="delegation-note delegation-note--blocked">
+                          대결 불가: 대결자가 이 문서의 참여자라 원 결재자가 처리합니다
+                        </small>
+                      )}
                       <span>
                         {lineStatusLabels[line.approvalStatus] ??
                           line.approvalStatus}

@@ -99,7 +99,7 @@ public class LeaveRequestService {
         submissionValidator.validateParticipants(approval, approvers, ccUsers);
         attachments.attachPrepared(approval, preparedFiles);
         approval.submit(LocalDateTime.now(clock));
-        var approvalLines = submissionFactory.createLines(approval, approvers, ccUsers);
+        var approvalLines = submissionFactory.createLines(approval, approvers);
         lines.saveAll(approvalLines);
         if (!ccUsers.isEmpty()) approvalCcs.saveAll(submissionFactory.createCcs(approval, ccUsers));
         approvalHistories.save(submissionFactory.createHistory(approval));
@@ -108,7 +108,7 @@ public class LeaveRequestService {
                 plan.totalDays(), input.reason().trim()));
         days.saveAll(plan.days().stream()
                 .map(day -> LeaveRequestDay.create(request, day.date(), day.period())).toList());
-        notificationWorkflow.onSubmitted(approval, approvalLines.getFirst().getApprover(), ccUsers);
+        notificationWorkflow.onSubmitted(approval, approvalLines.getFirst(), ccUsers);
         return approval.getApprovalId();
     }
 
