@@ -113,6 +113,50 @@ class LockContentionIntegrationTest {
     }
 
     @Test
+    void waitingNextStepApproverSeesLineActivatedByLeader() throws Exception {
+        Long approvalId = transactions.execute(ignored -> createTwoStepApproval(
+                createUser("snapshot-writer"), createUser("snapshot-first"), createUser("snapshot-second"),
+                createGeneralType("SNAPSHOT_GENERAL")));
+        holdLeaderInsideApproval(false);
+
+        // 후속 요청은 선행이 1단계를 커밋하기 전에 시작해 문서 잠금을 기다린다.
+        FollowerResult follower = leaderThenFollower("approvaltbl",
+                () -> approve(approvalId, "snapshot-first"),
+                () -> approve(approvalId, "snapshot-second"));
+
+        assertThat(follower.leaderFailure()).isNull();
+        assertFollowerWaitedForLeader(follower);
+        // 잠금을 얻은 시점에는 2단계가 PENDING이므로 승인돼야 한다.
+        assertThat(follower.failure()).isNull();
+        assertThat(approvals.findById(approvalId).orElseThrow().getApprovalStatus()).isEqualTo(ApprovalStatus.APPROVED);
+        assertThat(count("select count(*) from approval_historytbl where approval_id = ? and action_type = 'APPROVED'",
+                approvalId)).isEqualTo(2);
+    }
+
+    @Test
+    void waitingWriterCannotCancelAfterLeaderApprovesFirstStep() throws Exception {
+        Long approvalId = transactions.execute(ignored -> createTwoStepApproval(
+                createUser("cancel-race-writer"), createUser("cancel-race-first"), createUser("cancel-race-second"),
+                createGeneralType("CANCEL_RACE_GENERAL")));
+        holdLeaderInsideApproval(false);
+
+        FollowerResult follower = leaderThenFollower("approvaltbl",
+                () -> approve(approvalId, "cancel-race-first"),
+                () -> approvalService.cancelApproval(approvalId, "cancel-race-writer"));
+
+        assertThat(follower.leaderFailure()).isNull();
+        assertFollowerWaitedForLeader(follower);
+        // 잠금을 얻은 시점에는 1단계가 이미 처리됐으므로 회수할 수 없어야 한다.
+        assertThat(follower.failure()).isInstanceOfSatisfying(BusinessException.class, error ->
+                assertThat(error.getErrorCode()).isEqualTo(ErrorCode.APPROVAL_CANCEL_NOT_ALLOWED));
+        Approval approval = approvals.findById(approvalId).orElseThrow();
+        assertThat(approval.getApprovalStatus()).isEqualTo(ApprovalStatus.IN_PROGRESS);
+        assertThat(approval.getCurrentStep()).isEqualTo(2);
+        assertThat(count("select count(*) from approval_historytbl where approval_id = ? and action_type = 'CANCELED'",
+                approvalId)).isZero();
+    }
+
+    @Test
     void waitingApprovalSucceedsAfterLeaderRollsBack() throws Exception {
         Long approvalId = transactions.execute(ignored -> createSubmittedApproval(
                 createUser("rollback-writer"), createUser("rollback-approver"), createGeneralType("ROLLBACK_GENERAL")));
@@ -512,6 +556,14 @@ class LockContentionIntegrationTest {
         Approval approval = approvals.save(Approval.createDraft(writer, "잠금 검증", "본문", type));
         approval.submit(LocalDateTime.now(clock));
         lines.save(ApprovalLine.create(approval, approver, 1, ApprovalLineStatus.PENDING));
+        return approval.getApprovalId();
+    }
+
+    private Long createTwoStepApproval(User writer, User first, User second, ApprovalDocumentType type) {
+        Approval approval = approvals.save(Approval.createDraft(writer, "스냅샷 검증", "본문", type));
+        approval.submit(LocalDateTime.now(clock));
+        lines.save(ApprovalLine.create(approval, first, 1, ApprovalLineStatus.PENDING));
+        lines.save(ApprovalLine.create(approval, second, 2, ApprovalLineStatus.WAITING));
         return approval.getApprovalId();
     }
 
