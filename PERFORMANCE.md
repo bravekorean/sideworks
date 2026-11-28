@@ -1,12 +1,13 @@
 # SideWorks 성능 개선 기록
 
-2026-11-25 로컬 환경에서 검증했다. 대시보드 전용 API와 화면 처리는 제품 코드에 반영했다. 결재 처리함 복합 인덱스와 최근 활동 조회 방식은 격리 MySQL에서 검증한 후보다.
+2026-11-25 로컬 환경에서 검증했다(휴가 첨부 잠금 사례는 2026-11-28). 대시보드 전용 API와 화면 처리는 제품 코드에 반영했다. 결재 처리함 복합 인덱스와 최근 활동 조회 방식은 격리 MySQL에서 검증한 후보다.
 
 | 사례 | 결과 | 반영 상태 |
 | --- | --- | --- |
 | 대시보드 전용 조회 | 결재 조회 SQL 10 → 6개, 프로필 포함 대시보드 로더 요청 6 → 2개 | 제품 코드 반영 |
 | 결재 처리함 인덱스 | 첫 페이지 목록 SQL p50 19.110 → 0.815ms, 결재선 접근 34,000 → 20행 | 격리 DB 검증 |
 | 최근 결재 활동 | 결재·참조 편중 사용자 p50 23.134 → 3.773ms, 참여 없음 185.465 → 5.209ms | 격리 DB 검증 |
+| 휴가 첨부 저장과 사용자 잠금 | 첨부 저장 지연 300ms에서 같은 직원의 잔액 조회 서비스 호출 p50 323~328 → 5ms | 제품 코드 반영(2026-11-28) |
 
 ## 대시보드에서 쓰지 않는 조회 제거
 
@@ -59,6 +60,23 @@
 
 참여 문서가 없는 사용자는 인덱스만 추가했을 때 10만 행을 끝까지 읽었다. 최신 100건 탐색은 인덱스에서 100행을 읽었고, 추가 `UNION`에서 접근 문서 집합이 비어 이력 테이블을 다시 조회하지 않았다. 반환 컬럼·정렬, 임시저장 문서 권한과 100건 경계를 넘어가는 경우도 검증했다. 합성 데이터에서는 동일한 생성 시각을 사용해 이력 ID로 순서를 결정한다. 실제 적용 전에는 최근 활동의 시점 분포를 바꿔 추가 조회 비율과 인덱스 쓰기 비용을 확인해야 한다. [SQL 비교 및 재현 테스트](src/test/java/com/example/sideworks/ApprovalActivityPlanIntegrationTest.java)
 
+## 휴가 첨부 저장을 사용자 잠금 밖으로
+
+휴가·취소 신청은 트랜잭션의 첫 쿼리에서 신청자의 사용자 행을 `SELECT … FOR UPDATE`로 잠그고, 그 안에서 진행 중 신청량을 빼 가용 일수를 판단한다. 변경 전에는 첨부 파일 저장도 이 잠금 안에서 실행되어, 저장 시간만큼 같은 직원의 잔액 조회(`ensureBalance`도 같은 행을 잠근다)와 다른 신청이 기다렸다.
+
+휴가·취소 첨부는 `unbound/{UUID}` 키로 잠금 전에 저장하고 잠금 안에서는 첨부 행만 기록한다. 일반 결재 첨부의 `{approvalId}/{UUID}` 키와 동작은 그대로다. 저장 단계는 DB를 읽지 않으며, 신청 트랜잭션의 첫 SQL이 `usertbl … for update`인지 테스트로 확인한다.
+
+테스트 전용 FileStorage에 300ms 지연을 넣고, 같은 직원의 신청 A(PDF 1개)가 저장하는 동안 실행한 잔액 조회 서비스 호출(`getMyBalance()`)의 시작부터 반환까지를 10회 측정했다. 이 시간에는 트랜잭션 시작·종료, 사용자 행 잠금 획득, 잔액 조회가 함께 들어가며 순수한 행 잠금 대기만 분리한 값은 아니다. 변경 전 코드(`ce9bcc5`)와 변경 후 main(`cb8749d`)을 같은 측정 테스트로 비교했다. 두 커밋 모두 커넥션별 5초 잠금 대기 한도와 409 처리가 이미 적용돼 있어, 이 비교는 첨부 저장 위치 변경만의 효과다.
+
+| 실행 | p50 | 최대 |
+| --- | ---: | ---: |
+| 변경 전, 로컬 PC | 328ms | 334ms |
+| 변경 전, 별도 Linux 환경 2회 | 323ms · 328ms | 327ms · 331ms |
+| 변경 후, 로컬 PC | **5ms** | 67ms |
+| 변경 후, 별도 Linux 환경 2회 | **5ms** · **5ms** | 69ms · 74ms |
+
+별도 Linux 환경 변경 후 2회의 원시 표본은 `[69, 6, 7, 6, 5, 5, 5, 5, 5, 5]`, `[74, 5, 5, 6, 6, 5, 6, 5, 5, 4]`로 최대값은 첫 표본이었다. 로컬 PC 실행의 원시 표본은 남기지 않았다. 저장하는 동안 트랜잭션이 이미 열려 있어 DB 커넥션 1개를 점유하는 비용은 남는다. 신청이 업무 규칙 위반·잠금 대기 초과·일부 파일 저장 실패로 롤백되면 미리 저장한 파일이 남지 않는 것을 별도 통합 테스트로 확인했다. [측정 테스트](src/test/java/com/example/sideworks/LeaveAttachmentLockHoldBenchmarkTest.java) · [파일 정리 테스트](src/test/java/com/example/sideworks/LeaveAttachmentPrestoreIntegrationTest.java)
+
 ## 재현 방법
 
 Java 21과 Docker가 필요하다. 아래 테스트는 합성 데이터 전용 MySQL 8.0.44 컨테이너에서 실행하며 환경 변수를 켠 경우에만 동작한다. 보고서와 측정 표본은 `build/reports/` 하위에 생성된다.
@@ -72,6 +90,11 @@ $env:SIDEWORKS_PROCESSED_INDEX_BENCHMARK='true'
 
 $env:SIDEWORKS_APPROVAL_PLAN_BENCHMARK='true'
 ./gradlew.bat test --rerun --tests '*ApprovalActivityPlanIntegrationTest'
+
+$env:SIDEWORKS_LOCK_HOLD_BENCHMARK='true'
+./gradlew.bat test --rerun --tests '*LeaveAttachmentLockHoldBenchmarkTest'
 ```
+
+휴가 첨부 측정은 `build/reports/`에 별도 파일을 만들지 않는다. Gradle 테스트 보고서(`build/reports/tests/test/index.html`)의 `LeaveAttachmentLockHoldBenchmarkTest` 표준 출력에서 `LOCK_HOLD_BENCHMARK` 줄의 표본과 p50·최대값을 확인한다.
 
 HTTP 비교와 브라우저 확인은 `frontend`에서 `npm run build`를 먼저 실행하고, 저장소 루트에서 `$env:SIDEWORKS_DASHBOARD_BROWSER_SMOKE='true'`를 설정한 뒤 `./gradlew.bat test --rerun --tests '*DashboardBrowserSmokeTest'`로 서버를 시작한다. `build/reports/dashboard-browser-smoke/server.txt`에 표시된 루프백 주소에서 브라우저 확인을 진행한다. 합성 계정 안내는 테스트 코드에 있으며, 검증이 끝나면 같은 보고서 폴더에 `stop` 파일을 만들어 서버를 종료한다.
