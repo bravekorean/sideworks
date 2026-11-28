@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import jakarta.persistence.OptimisticLockException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -37,6 +38,27 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleConcurrentModification(Exception e) {
         ErrorCode errorCode = ErrorCode.CONCURRENT_MODIFICATION;
         LOG.atWarn().addKeyValue("event", "OPTIMISTIC_LOCK_CONFLICT").log("Concurrent modification rejected");
+        return ResponseEntity.status(errorCode.getStatus()).body(ErrorResponse.from(errorCode));
+    }
+
+    /**
+     * 행 잠금 대기 시간 초과(MySQL 1205)는 서버 장애가 아니라 같은 자원을 다른 요청이 처리 중이라는 뜻이다.
+     * 재시도할 수 있는 409로 응답하고, 운영 중 흔히 생길 수 있으므로 스택 없이 WARN으로만 남긴다.
+     * 트랜잭션은 이미 롤백됐으므로 부분 반영은 없다.
+     */
+    @ExceptionHandler({
+            PessimisticLockingFailureException.class,
+            jakarta.persistence.PessimisticLockException.class,
+            jakarta.persistence.LockTimeoutException.class
+    })
+    public ResponseEntity<ErrorResponse> handleLockWaitTimeout(Exception e) {
+        ErrorCode errorCode = ErrorCode.LOCK_WAIT_TIMEOUT;
+        LOG.atWarn()
+                .addKeyValue("event", "LOCK_WAIT_TIMEOUT")
+                .addKeyValue("errorCode", errorCode.getCode())
+                .addKeyValue("status", errorCode.getStatus().value())
+                .addKeyValue("exception", e.getClass().getSimpleName())
+                .log("Lock wait timed out");
         return ResponseEntity.status(errorCode.getStatus()).body(ErrorResponse.from(errorCode));
     }
 

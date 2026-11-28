@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -24,6 +25,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -78,6 +82,18 @@ class ApprovalControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("totalElements").value(0));
         verify(approvalService).getManagedApprovals("admin", null, null, true, pageable);
+    }
+
+    @Test
+    void 승인_중_행_잠금_대기_시간이_초과되면_409와_LOCK_WAIT_TIMEOUT을_반환한다() throws Exception {
+        doThrow(new CannotAcquireLockException("Lock wait timeout exceeded"))
+                .when(approvalService).approveApproval(eq(10L), eq("approver"), any());
+
+        mockMvc.perform(post("/api/approvals/10/approve")
+                        .principal(new UsernamePasswordAuthenticationToken("approver", null)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("LOCK_WAIT_TIMEOUT"))
+                .andExpect(jsonPath("$.message").value(ErrorCode.LOCK_WAIT_TIMEOUT.getMessage()));
     }
 
     @Test
