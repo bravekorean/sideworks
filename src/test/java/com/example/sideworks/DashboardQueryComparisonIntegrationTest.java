@@ -186,6 +186,12 @@ class DashboardQueryComparisonIntegrationTest {
             timings.put(variant.getKey(), series);
         }
         var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        // The latest-history probe takes two statements; a fallback to the UNION query adds one.
+        // Which path a user takes depends on the fixture, so pin it once and require it to stay stable.
+        long beforeProbe = statistics.getPrepareStatementCount();
+        transaction.execute(ignored -> variants.get("optimized").get("activities").get());
+        optimizedActivitySql = statistics.getPrepareStatementCount() - beforeProbe;
+        assertThat(optimizedActivitySql).as("optimized activities SQL").isBetween(2L, 3L);
         for (int round = 0; round < ROUNDS; round++) {
             for (int sample = 0; sample < SAMPLES_PER_ROUND; sample++) {
                 List<String> order = (round + sample) % 2 == 0
@@ -225,8 +231,11 @@ class DashboardQueryComparisonIntegrationTest {
         }));
     }
 
+    private long optimizedActivitySql;
+
     private long expectedSql(String variant, String query) {
-        if (query.equals("sequential-bundle")) return variant.equals("baseline") ? 10 : 6;
+        if (query.equals("sequential-bundle")) return variant.equals("baseline") ? 10 : 5 + optimizedActivitySql;
+        if (variant.equals("optimized") && query.equals("activities")) return optimizedActivitySql;
         return variant.equals("baseline") || query.equals("pending") ? 2 : 1;
     }
 }
