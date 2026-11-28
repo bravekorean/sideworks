@@ -20,6 +20,9 @@ import java.util.UUID;
 @Slf4j
 public class LocalFileStorage implements FileStorage {
 
+    /** 문서 생성 전에 저장한 첨부(휴가·취소 신청)의 키 접두사. 문서별 폴더(`{approvalId}/`)와 섞이지 않게 분리한다. */
+    private static final String UNBOUND_PREFIX = "unbound/";
+
     private final Path rootPath;
 
     public LocalFileStorage(AttachmentProperties properties) {
@@ -37,7 +40,15 @@ public class LocalFileStorage implements FileStorage {
 
     @Override
     public StoredFile store(Long approvalId, MultipartFile file) {
-        String storageKey = approvalId + "/" + UUID.randomUUID();
+        return write(approvalId + "/" + UUID.randomUUID(), file);
+    }
+
+    @Override
+    public StoredFile storeUnbound(MultipartFile file) {
+        return write(UNBOUND_PREFIX + UUID.randomUUID(), file);
+    }
+
+    private StoredFile write(String storageKey, MultipartFile file) {
         Path target = resolveSafely(storageKey);
 
         try {

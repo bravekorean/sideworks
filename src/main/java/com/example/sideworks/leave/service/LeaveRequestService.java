@@ -70,6 +70,9 @@ public class LeaveRequestService {
     @Transactional
     public Long submit(String loginId, LeaveRequestDocumentInput input, List<MultipartFile> files) {
         validateInput(input);
+        // 첨부 파일 저장은 사용자 행 잠금 전에 끝낸다. 이 단계는 DB를 읽지 않으므로 트랜잭션의 첫 SQL은 아래 잠금 읽기다.
+        var preparedFiles = files == null || files.isEmpty() ? List.<ApprovalAttachmentService.PreparedAttachment>of()
+                : attachments.prepareUnbound(files);
         balanceService.getMyBalance(loginId, input.startDate().getYear()); // 사용자 행 잠금과 최초 부여
         User user = users.findByLoginId(loginId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
@@ -94,7 +97,7 @@ public class LeaveRequestService {
                 documentTypes.requireSystemType("LEAVE_REQUEST", DocumentBehaviorType.LEAVE_REQUEST)));
         submissionValidator.validateDocument(approval);
         submissionValidator.validateParticipants(approval, approvers, ccUsers);
-        if (files != null && !files.isEmpty()) attachments.upload(approval.getApprovalId(), loginId, files);
+        attachments.attachPrepared(approval, preparedFiles);
         approval.submit(LocalDateTime.now(clock));
         var approvalLines = submissionFactory.createLines(approval, approvers, ccUsers);
         lines.saveAll(approvalLines);
