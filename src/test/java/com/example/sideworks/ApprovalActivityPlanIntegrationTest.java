@@ -5,6 +5,7 @@ import com.example.sideworks.approval.repository.ApprovalRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -201,6 +202,100 @@ class ApprovalActivityPlanIntegrationTest {
         } finally {
             jdbc.execute("drop index " + HISTORY_INDEX + " on approval_historytbl");
         }
+    }
+
+    // Paged GET /api/approvals/activities: the list and the count are timed separately.
+    // "before" is the pre-change OR + EXISTS SQL on the pre-index schema, "indexed" is the same SQL
+    // once the history index exists (the regression), "new" is the shipped probe/UNION path.
+    private static final String PAGED_WHERE = """
+            from approval_historytbl h %s join approvaltbl a on a.approval_id=h.approval_id
+            join usertbl u on u.user_id=h.actor_id
+            where a.writer_id=? or (a.approval_status<>'DRAFT' and (
+                exists (select 1 from approval_linetbl l where l.approval_id=a.approval_id and l.approver_id=?)
+                or exists (select 1 from approval_cctbl c where c.approval_id=a.approval_id and c.user_id=?)
+            ))
+            """;
+    private static final String PAGED_LIST = PROJECTION + PAGED_WHERE
+            + " order by h.created_at desc, h.approval_history_id desc limit ? offset ?";
+    private static final String PAGED_COUNT = "select count(*) " + PAGED_WHERE;
+    private static final String NEW_COUNT = VISIBLE + """
+            select count(*) from visible v join approval_historytbl h on h.approval_id=v.approval_id
+            """;
+    private static final String PAGED_INDEX = "idx_approval_historytbl_created";
+    private static final String NEW_PAGE = LATE_JOIN.replaceFirst(" limit \\?", " limit ? offset ?");
+
+    @Test
+    void comparesPagedActivityListAndCount() throws Exception {
+        seedActivityData();
+        jdbc.execute("create index " + PAGED_INDEX + " on approval_historytbl(created_at desc, approval_history_id desc)");
+        jdbc.queryForList("analyze table approval_historytbl");
+        var output = Path.of("build/reports/approval-activity-paged");
+        Files.createDirectories(output);
+        var read = new TransactionTemplate(transactions);
+        read.setReadOnly(true);
+        var report = new StringBuilder("# Paged recent activity list and count\n\n")
+                .append("MySQL ").append(jdbc.queryForObject("select version()", String.class))
+                .append("; 20,000 documents / 100,000 histories; page size 20. Ten warmups, 50 rotating samples.\n")
+                .append("before = OR + EXISTS without the history index, indexed = same SQL with it, new = shipped path.\n")
+                .append("list new: pages inside the latest-100 window use the repository probe, deeper pages the UNION page SQL.\n\n")
+                .append("| user | page | query | before p50 | indexed p50 | new p50 | new p95 |\n|---:|---:|---|---:|---:|---:|---:|\n");
+        var plans = new StringBuilder();
+        String ignore = "ignore index (" + PAGED_INDEX + ")";
+        for (long user : new long[]{1, 2, 10, 101}) {
+            for (int page : new int[]{0, 10}) {
+                int offset = page * 20;
+                var expected = jdbc.queryForList(String.format(PAGED_LIST, ignore), user, user, user, 20, offset);
+                var actual = approvals.findRecentActivitiesByUserId(user, PageRequest.of(page, 20));
+                assertThat(actual.getContent()).extracting(ApprovalActivityResponse::getApprovalHistoryId)
+                        .containsExactlyElementsOf(expected.stream()
+                                .map(row -> ((Number) row.get("approval_history_id")).longValue()).toList());
+                long expectedCount = jdbc.queryForObject(String.format(PAGED_COUNT, ignore), Long.class, user, user, user);
+                assertThat(actual.getTotalElements()).isEqualTo(expectedCount);
+                assertThat(jdbc.queryForObject(NEW_COUNT, Long.class, user, user, user)).isEqualTo(expectedCount);
+
+                Runnable newList = offset + 20 <= 100
+                        ? () -> approvals.findLatestActivitiesByUserId(user, 20)
+                        : () -> jdbc.queryForList(NEW_PAGE, user, user, user, 20, offset);
+                long[][] list = time(read, List.of(
+                        () -> jdbc.queryForList(String.format(PAGED_LIST, ignore), user, user, user, 20, offset),
+                        () -> jdbc.queryForList(String.format(PAGED_LIST, ""), user, user, user, 20, offset),
+                        newList));
+                row(report, user, page, "list", list);
+                if (page == 0) {
+                    long[][] count = time(read, List.of(
+                            () -> jdbc.queryForObject(String.format(PAGED_COUNT, ignore), Long.class, user, user, user),
+                            () -> jdbc.queryForObject(String.format(PAGED_COUNT, ""), Long.class, user, user, user),
+                            () -> jdbc.queryForObject(NEW_COUNT, Long.class, user, user, user)));
+                    row(report, user, page, "count", count);
+                    plans.append("user=").append(user).append(" count before\n")
+                            .append(jdbc.queryForObject("explain analyze " + String.format(PAGED_COUNT, ignore), String.class, user, user, user))
+                            .append("\ncount new\n")
+                            .append(jdbc.queryForObject("explain analyze " + NEW_COUNT, String.class, user, user, user)).append('\n');
+                }
+            }
+        }
+        Files.writeString(output.resolve("results.md"), report);
+        Files.writeString(output.resolve("plans.txt"), plans);
+    }
+
+    private long[][] time(TransactionTemplate read, List<Runnable> variants) {
+        for (int i = 0; i < 10; i++) variants.forEach(v -> read.executeWithoutResult(ignored -> v.run()));
+        long[][] times = new long[variants.size()][SAMPLES];
+        for (int i = 0; i < SAMPLES; i++) {
+            for (int j = 0; j < variants.size(); j++) {
+                int variant = (i + j) % variants.size();
+                long start = System.nanoTime();
+                read.executeWithoutResult(ignored -> variants.get(variant).run());
+                times[variant][i] = System.nanoTime() - start;
+            }
+        }
+        for (long[] t : times) Arrays.sort(t);
+        return times;
+    }
+
+    private void row(StringBuilder report, long user, int page, String query, long[][] t) {
+        report.append(String.format(Locale.ROOT, "| %d | %d | %s | %.3f | %.3f | %.3f | %.3f |%n", user, page, query,
+                t[0][24] / 1e6, t[1][24] / 1e6, t[2][24] / 1e6, t[2][47] / 1e6));
     }
 
     private void seedActivityData() {

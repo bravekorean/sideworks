@@ -1,5 +1,7 @@
 package com.example.sideworks;
 
+import com.example.sideworks.approval.dto.ApprovalActivityResponse;
+import com.example.sideworks.approval.entity.ApprovalActionType;
 import com.example.sideworks.approval.entity.ApprovalStatus;
 import com.example.sideworks.approval.repository.ApprovalRepository;
 import jakarta.persistence.EntityManagerFactory;
@@ -86,6 +88,89 @@ class DashboardQueryComparisonIntegrationTest {
     }
 
     @Test
+    void latestActivitiesMatchPagedQueryAcrossProbeWindowBoundary() {
+        seed(1_000);
+        // User 101 has no fixture participation. Reach document 998 (APPROVED) as both approver and CC
+        // so the fallback UNION must deduplicate it.
+        jdbc.update("""
+                insert into approval_linetbl(approval_id,approver_id,approval_step,approval_status,created_at)
+                values (998,101,9,'APPROVED','2026-01-01')
+                """);
+        jdbc.update("insert into approval_cctbl(approval_id,user_id,created_at) values (998,101,'2026-01-01')");
+        // 101 newest histories share one timestamp, so the 100-row window cuts through a tie
+        // and only the history ID decides which row is the 100th.
+        insertHistories(998, 101, "2030-01-02 00:00:00");
+        for (int limit : new int[]{1, 99, 100, 101, 102, 110}) {
+            assertLatestMatchesPaged(101L, limit);
+        }
+        assertThat(approvals.findLatestActivitiesByUserId(101L, 100)).hasSize(100);
+        assertThat(approvals.findLatestActivitiesByUserId(101L, 101)).hasSize(101);
+
+        // Fill the whole window with a DRAFT that 101 is attached to but must not see.
+        jdbc.update("""
+                insert into approval_linetbl(approval_id,approver_id,approval_step,approval_status,created_at)
+                values (999,101,9,'PENDING','2026-01-01')
+                """);
+        jdbc.update("insert into approval_cctbl(approval_id,user_id,created_at) values (999,101,'2026-01-01')");
+        insertHistories(999, 100, "2030-01-03 00:00:00");
+        for (int limit : new int[]{1, 5, 100, 101}) {
+            assertLatestMatchesPaged(101L, limit);
+        }
+        assertThat(approvals.findLatestActivitiesByUserId(101L, 5))
+                .extracting(activity -> activity.getApprovalId())
+                .containsOnly(998L);
+    }
+
+    private void insertHistories(long approvalId, int count, String createdAt) {
+        List<Object[]> rows = new java.util.ArrayList<>();
+        for (int i = 0; i < count; i++) rows.add(new Object[]{approvalId, 1, i + 1, createdAt});
+        jdbc.batchUpdate("""
+                insert into approval_historytbl(approval_id,actor_id,action_step,action_type,created_at)
+                values (?,?,?,'APPROVED',?)
+                """, rows);
+    }
+
+    // Both repository methods now share one implementation, so compare them with the
+    // pre-change OR + EXISTS SQL instead of with each other.
+    private static final String REFERENCE_VISIBLE = """
+            from approval_historytbl h join approvaltbl a on a.approval_id=h.approval_id
+            join usertbl u on u.user_id=h.actor_id
+            where a.writer_id=? or (a.approval_status<>'DRAFT' and (
+            exists(select 1 from approval_linetbl l where l.approval_id=a.approval_id and l.approver_id=?)
+            or exists(select 1 from approval_cctbl c where c.approval_id=a.approval_id and c.user_id=?)))
+            """;
+
+    private List<ApprovalActivityResponse> referenceActivities(long userId, long offset, int limit) {
+        return jdbc.query("""
+                select h.approval_history_id, a.approval_id, a.title, u.user_id, u.user_name,
+                       h.action_step, h.action_type, h.created_at
+                """ + REFERENCE_VISIBLE + """
+                order by h.created_at desc, h.approval_history_id desc limit ? offset ?
+                """, (rs, row) -> new ApprovalActivityResponse(rs.getLong(1), rs.getLong(2), rs.getString(3),
+                rs.getLong(4), rs.getString(5), rs.getInt(6), ApprovalActionType.valueOf(rs.getString(7)),
+                rs.getTimestamp(8).toLocalDateTime()), userId, userId, userId, limit, offset);
+    }
+
+    private long referenceCount(long userId) {
+        Long total = jdbc.queryForObject("select count(*) " + REFERENCE_VISIBLE, Long.class, userId, userId, userId);
+        return total == null ? 0 : total;
+    }
+
+    private void assertLatestMatchesPaged(long userId, int limit) {
+        assertThat(approvals.findLatestActivitiesByUserId(userId, limit))
+                .as("latest limit %d", limit)
+                .usingRecursiveComparison()
+                .isEqualTo(referenceActivities(userId, 0, limit));
+        for (int page : new int[]{0, 1, 3}) {
+            var actual = approvals.findRecentActivitiesByUserId(userId, PageRequest.of(page, limit));
+            assertThat(actual.getContent()).as("page %d size %d", page, limit)
+                    .usingRecursiveComparison()
+                    .isEqualTo(referenceActivities(userId, (long) page * limit, limit));
+            assertThat(actual.getTotalElements()).isEqualTo(referenceCount(userId));
+        }
+    }
+
+    @Test
     void compareAlternatingBaselineAndPurposeSpecificQueries() throws Exception {
         Files.createDirectories(OUTPUT);
         StringBuilder report = new StringBuilder("# Dashboard query comparison\n\n");
@@ -136,8 +221,11 @@ class DashboardQueryComparisonIntegrationTest {
         for (int limit : new int[]{1, 5, 20}) {
             var latestActivities = approvals.findLatestActivitiesByUserId(userId, limit);
             assertThat(latestActivities)
-                    .usingRecursiveComparison().isEqualTo(
-                            approvals.findRecentActivitiesByUserId(userId, PageRequest.of(0, limit)).getContent());
+                    .usingRecursiveComparison().isEqualTo(referenceActivities(userId, 0, limit));
+            var page = approvals.findRecentActivitiesByUserId(userId, PageRequest.of(2, limit));
+            assertThat(page.getContent()).usingRecursiveComparison()
+                    .isEqualTo(referenceActivities(userId, 2L * limit, limit));
+            assertThat(page.getTotalElements()).isEqualTo(referenceCount(userId));
             assertThat(latestActivities).extracting(activity -> activity.getApprovalHistoryId())
                     .containsExactlyElementsOf(jdbc.queryForList("""
                             select h.approval_history_id from approval_historytbl h
@@ -234,8 +322,9 @@ class DashboardQueryComparisonIntegrationTest {
     private long optimizedActivitySql;
 
     private long expectedSql(String variant, String query) {
-        if (query.equals("sequential-bundle")) return variant.equals("baseline") ? 10 : 5 + optimizedActivitySql;
-        if (variant.equals("optimized") && query.equals("activities")) return optimizedActivitySql;
+        // The paged activity API now shares the probe path and adds one count statement.
+        if (query.equals("sequential-bundle")) return variant.equals("baseline") ? 9 + optimizedActivitySql : 5 + optimizedActivitySql;
+        if (query.equals("activities")) return variant.equals("baseline") ? optimizedActivitySql + 1 : optimizedActivitySql;
         return variant.equals("baseline") || query.equals("pending") ? 2 : 1;
     }
 }

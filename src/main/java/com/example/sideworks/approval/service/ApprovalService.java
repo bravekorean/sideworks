@@ -40,6 +40,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -77,6 +78,8 @@ public class ApprovalService {
     private final ApprovalTemplateService approvalTemplateService;
     private final ApprovalDelegationService delegationService;
 
+    // 최근 활동은 최신 이력 ID 조회와 접근 판정을 두 문장으로 나눠 실행하므로 같은 스냅샷이 필요하다.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ApprovalDashboardResponse getDashboard(String loginId) {
         User user = findUserByLoginId(loginId);
         Long userId = user.getUserId();
@@ -323,6 +326,8 @@ public class ApprovalService {
         return approvalRepository.findCcByUserId(ccUser.getUserId(), keyword, status, pageable);
     }
 
+    // 최근 활동은 최신 이력 ID 조회와 접근 판정을 두 문장으로 나눠 실행하므로 같은 스냅샷이 필요하다.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Page<ApprovalActivityResponse> getRecentActivities(String loginId, Pageable pageable) {
         User user = findUserByLoginId(loginId);
 
