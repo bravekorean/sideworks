@@ -206,7 +206,8 @@ class ApprovalActivityPlanIntegrationTest {
 
     // Paged GET /api/approvals/activities: the list and the count are timed separately.
     // "before" is the pre-change OR + EXISTS SQL on the pre-index schema, "indexed" is the same SQL
-    // once the history index exists (the regression), "new" is the shipped probe/UNION path.
+    // once the history index exists (the regression), "new" is the probe/UNION path of PR 2.
+    // Deep pages now try a sized latest window first; that change is measured by ActivityDeepPageBenchmarkIntegrationTest.
     private static final String PAGED_WHERE = """
             from approval_historytbl h %s join approvaltbl a on a.approval_id=h.approval_id
             join usertbl u on u.user_id=h.actor_id

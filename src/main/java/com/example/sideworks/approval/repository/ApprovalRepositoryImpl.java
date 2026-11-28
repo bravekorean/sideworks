@@ -46,6 +46,9 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
 
     // 대시보드 최근 활동은 전체 이력 중 최신 구간부터 확인한다. 측정 근거는 PERFORMANCE.md를 참조한다.
     private static final int LATEST_ACTIVITY_PROBE_SIZE = 100;
+    // 깊은 페이지의 최신 구간 탐색 상한과 여유 배수. 상한을 넘는 사용자는 UNION이 더 싸다(PERFORMANCE.md).
+    private static final int DEEP_PAGE_MAX_WINDOW = 5_000;
+    private static final int DEEP_PAGE_WINDOW_MARGIN = 2;
 
     // 접근 가능한 문서 ID를 역할별 인덱스로 모은 뒤 이력을 조인한다.
     // JPQL/QueryDSL은 UNION과 CTE를 생성하지 않으므로 이 경로만 네이티브 SQL로 둔다.
@@ -84,7 +87,37 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
             order by h.created_at desc, h.approval_history_id desc
             """;
 
-    private static final String VISIBLE_ACTIVITIES_COUNT_SQL = VISIBLE_APPROVALS_CTE + """
+    // 깊은 페이지용 최신 구간 탐색. 구간은 ID만 읽어 정렬 인덱스만으로 끝나게 하고(커버링), 구간 안에서만
+    // accessibleByUser와 같은 접근 조건을 판정한다. ID 목록을 IN으로 넘기면 구간이 커질수록 바인딩 비용이 커서
+    // 한 문장으로 둔다. 인덱스 힌트는 두지 않는다(인덱스가 없는 DB에서도 느릴 뿐 결과는 같다).
+    private static final String LATEST_WINDOW_ACTIVITIES_PAGE_SQL = """
+            with latest as (
+                select approval_history_id from approval_historytbl
+                order by created_at desc, approval_history_id desc
+                limit :window
+            ), page as (
+                select h.approval_history_id, h.approval_id, h.actor_id, h.action_step, h.action_type, h.created_at
+                from latest w
+                join approval_historytbl h on h.approval_history_id = w.approval_history_id
+                join approvaltbl a on a.approval_id = h.approval_id
+                where a.writer_id = :userId
+                   or (a.approval_status <> 'DRAFT' and (
+                        exists (select 1 from approval_linetbl l where l.approval_id = a.approval_id
+                                and (l.approver_id = :userId or l.processed_by_id = :userId))
+                        or exists (select 1 from approval_cctbl c where c.approval_id = a.approval_id
+                                and c.user_id = :userId)))
+                order by h.created_at desc, h.approval_history_id desc
+                limit :limit offset :offset
+            )
+            select h.approval_history_id, a.approval_id, a.title, u.user_id, u.user_name,
+                   h.action_step, h.action_type, h.created_at
+            from page h
+            join approvaltbl a on a.approval_id = h.approval_id
+            join usertbl u on u.user_id = h.actor_id
+            order by h.created_at desc, h.approval_history_id desc
+            """;
+
+    private static final String VISIBLE_ACTIVITIES_COUNT_SQL =VISIBLE_APPROVALS_CTE + """
             select count(*)
             from visible v
             join approval_historytbl h on h.approval_id = v.approval_id
@@ -156,15 +189,7 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
 
     // 이력 정렬 인덱스로 최신 N건의 ID만 읽고, 그 안에서 접근 범위를 판정한다.
     private List<ApprovalActivityResponse> findVisibleAmongLatestHistories(Long userId, int limit) {
-        List<Long> latestHistoryIds = queryFactory
-                .select(approvalHistory.approvalHistoryId)
-                .from(approvalHistory)
-                .orderBy(
-                        approvalHistory.createdAt.desc(),
-                        approvalHistory.approvalHistoryId.desc()
-                )
-                .limit(LATEST_ACTIVITY_PROBE_SIZE)
-                .fetch();
+        List<Long> latestHistoryIds = findLatestHistoryIds(LATEST_ACTIVITY_PROBE_SIZE);
         if (latestHistoryIds.isEmpty()) {
             return List.of();
         }
@@ -172,6 +197,53 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
                 .where(approvalHistory.approvalHistoryId.in(latestHistoryIds))
                 .limit(limit)
                 .fetch();
+    }
+
+    // ID만 읽으므로 (created_at DESC, approval_history_id DESC) 인덱스만으로 끝난다(커버링 인덱스).
+    private List<Long> findLatestHistoryIds(int windowSize) {
+        return queryFactory
+                .select(approvalHistory.approvalHistoryId)
+                .from(approvalHistory)
+                .orderBy(
+                        approvalHistory.createdAt.desc(),
+                        approvalHistory.approvalHistoryId.desc()
+                )
+                .limit(windowSize)
+                .fetch();
+    }
+
+    /**
+     * 고정 100건 탐색 구간을 넘는 페이지를, 접근 가능 이력 비율로 크기를 정한 최신 구간에서 찾는다.
+     * 접근 문서 집합을 전부 만드는 UNION은 결재·참조 편중 사용자에서 집합이 커서 느리다.
+     * 구간 안에서 offset+limit건을 모두 확보했을 때만(= 페이지가 꽉 찼을 때만) 결과를 쓴다.
+     * 구간은 전체 정렬 순서의 최신 접두부이므로, 그 안에서 채운 페이지는 전체에서 고른 페이지와 같다.
+     * 부족하거나 추정 구간이 상한을 넘으면 빈 값을 돌려 기존 UNION 경로를 쓰게 한다.
+     */
+    private Optional<List<ApprovalActivityResponse>> findDeepPageInLatestWindow(
+            Long userId, long offset, int limit, long total) {
+        Long maxHistoryId = queryFactory
+                .select(approvalHistory.approvalHistoryId.max())
+                .from(approvalHistory)
+                .fetchOne();
+        if (maxHistoryId == null || total <= 0) {
+            return Optional.empty();
+        }
+        // 최대 ID는 전체 이력 수 이상이므로(삭제·롤백 간격) 구간을 크게 잡는 쪽으로만 틀린다.
+        double estimatedWindow = Math.ceil(DEEP_PAGE_WINDOW_MARGIN * (double) (offset + limit) * maxHistoryId / total);
+        if (estimatedWindow > DEEP_PAGE_MAX_WINDOW) {
+            return Optional.empty();
+        }
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = entityManager.createNativeQuery(LATEST_WINDOW_ACTIVITIES_PAGE_SQL)
+                .setParameter("userId", userId)
+                .setParameter("window", (int) estimatedWindow)
+                .setParameter("limit", limit)
+                .setParameter("offset", offset)
+                .getResultList();
+        if (rows.size() != limit) {
+            return Optional.empty();
+        }
+        return Optional.of(rows.stream().map(ApprovalRepositoryImpl::toActivityResponse).toList());
     }
 
     @SuppressWarnings("unchecked")
@@ -493,10 +565,21 @@ public class ApprovalRepositoryImpl implements ApprovalRepositoryCustom {
     }
 
     @Override
+    // 전체 건수를 먼저 구해 깊은 페이지의 탐색 구간 크기를 정한다. 건수·탐색·UNION은 서비스의
+    // REPEATABLE READ 읽기 전용 트랜잭션 안에서 같은 스냅샷을 본다.
     public Page<ApprovalActivityResponse> findRecentActivitiesByUserId(Long userId, Pageable pageable) {
-        List<ApprovalActivityResponse> content =
-                findVisibleActivities(userId, pageable.getOffset(), pageable.getPageSize());
-        return toPage(content, pageable, countVisibleActivities(userId));
+        long total = countVisibleActivities(userId);
+        long offset = pageable.getOffset();
+        int limit = pageable.getPageSize();
+        if (offset >= total) {
+            return toPage(List.of(), pageable, total);
+        }
+        if (offset + limit <= LATEST_ACTIVITY_PROBE_SIZE) {
+            return toPage(findVisibleActivities(userId, offset, limit), pageable, total);
+        }
+        List<ApprovalActivityResponse> content = findDeepPageInLatestWindow(userId, offset, limit, total)
+                .orElseGet(() -> findVisibleActivitiesPage(userId, offset, limit));
+        return toPage(content, pageable, total);
     }
 
     // 최신 이력 구간 안의 접근 판정에 쓴다. 네이티브 fallback과 접근 범위·정렬이 같아야 한다.
