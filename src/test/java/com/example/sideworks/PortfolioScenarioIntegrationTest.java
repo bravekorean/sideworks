@@ -84,6 +84,10 @@ class PortfolioScenarioIntegrationTest {
     @Autowired LeaveRequestService leaveRequestService;
     @Autowired Clock clock;
 
+    /**
+     * 같은 문서에 승인 2건을 동시에 출발시킨 뒤 최종 결과(1건 성공, 이력·알림 각 1건)만 검증한다.
+     * 두 요청의 도착 순서는 보장하지 않으며, 잠금 대기 자체는 {@link LockContentionIntegrationTest}에서 검증한다.
+     */
     @Test
     void concurrentApprovalProcessesOneDecisionOnly() throws Exception {
         Long approvalId = transactions.execute(ignored -> {
@@ -115,6 +119,10 @@ class PortfolioScenarioIntegrationTest {
                 approvalId)).isEqualTo(1);
     }
 
+    /**
+     * 잔여 1일인 직원의 1일 신청 2건을 동시에 출발시킨 뒤 최종 결과(1건 접수, 잔액 유지)만 검증한다.
+     * 두 요청의 도착 순서는 보장하지 않으며, 잠금 대기 자체는 {@link LockContentionIntegrationTest}에서 검증한다.
+     */
     @Test
     void concurrentLeaveRequestsCannotReserveMoreThanOneRemainingDay() throws Exception {
         LocalDate leaveDate = LocalDate.now(clock).plusWeeks(2)
@@ -180,6 +188,9 @@ class PortfolioScenarioIntegrationTest {
                 .isEqualTo(ApprovalStatus.TERMINATED);
         assertThat(count("select count(*) from approval_historytbl where approval_id = ? and action_type = 'TERMINATED'",
                 approvalId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "select comment from approval_historytbl where approval_id = ? and action_type = 'TERMINATED'",
+                String.class, approvalId)).isEqualTo("담당자 비활성화");
         assertThat(count("select count(*) from notificationtbl where approval_id = ? and event_key = 'TERMINATED'",
                 approvalId)).isEqualTo(2);
         assertThat(approvalService.getManagedApprovals(
